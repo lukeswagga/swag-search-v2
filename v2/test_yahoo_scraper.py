@@ -2,6 +2,12 @@
 Test script for Yahoo scraper
 Tests scraping 3 brands and verifies performance and deduplication
 """
+import sys
+import os
+
+# Add current directory to path for imports
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 import asyncio
 import time
 from scrapers.yahoo_scraper import YahooScraper

@@ -9,19 +9,49 @@ import urllib.parse
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timezone
 
-from .base import BaseScraper
-from ..config import (
-    YAHOO_SEARCH_URL,
-    YAHOO_TIMEOUT,
-    YAHOO_CONNECT_TIMEOUT,
-    YAHOO_MAX_RETRIES,
-    YAHOO_RETRY_BACKOFF_BASE,
-    YAHOO_RATE_LIMIT_DELAY,
-    MAX_CONCURRENT_REQUESTS,
-    BATCH_SIZE,
-    DEFAULT_HEADERS
-)
-from ..models import Listing
+# Handle imports - try relative first, then absolute
+import sys
+import os
+
+# Add parent directory to path for absolute imports
+_parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _parent_dir not in sys.path:
+    sys.path.insert(0, _parent_dir)
+
+try:
+    from .base import BaseScraper
+except ImportError:
+    from scrapers.base import BaseScraper
+
+try:
+    from ..config import (
+        YAHOO_SEARCH_URL,
+        YAHOO_TIMEOUT,
+        YAHOO_CONNECT_TIMEOUT,
+        YAHOO_MAX_RETRIES,
+        YAHOO_RETRY_BACKOFF_BASE,
+        YAHOO_RATE_LIMIT_DELAY,
+        MAX_CONCURRENT_REQUESTS,
+        BATCH_SIZE,
+        DEFAULT_HEADERS
+    )
+except ImportError:
+    from config import (
+        YAHOO_SEARCH_URL,
+        YAHOO_TIMEOUT,
+        YAHOO_CONNECT_TIMEOUT,
+        YAHOO_MAX_RETRIES,
+        YAHOO_RETRY_BACKOFF_BASE,
+        YAHOO_RATE_LIMIT_DELAY,
+        MAX_CONCURRENT_REQUESTS,
+        BATCH_SIZE,
+        DEFAULT_HEADERS
+    )
+
+try:
+    from ..models import Listing
+except ImportError:
+    from models import Listing
 
 
 class YahooScraper(BaseScraper):
