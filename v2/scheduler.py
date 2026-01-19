@@ -20,10 +20,12 @@ if _parent_dir not in sys.path:
 
 try:
     from scrapers.yahoo_scraper import YahooScraper
-    from config import SCRAPER_RUN_INTERVAL_SECONDS
+    from config import SCRAPER_RUN_INTERVAL_SECONDS, get_discord_webhook_url, MAX_ALERTS_PER_CYCLE
+    from discord_notifier import DiscordNotifier
 except ImportError:
     from v2.scrapers.yahoo_scraper import YahooScraper
-    from v2.config import SCRAPER_RUN_INTERVAL_SECONDS
+    from v2.config import SCRAPER_RUN_INTERVAL_SECONDS, get_discord_webhook_url, MAX_ALERTS_PER_CYCLE
+    from v2.discord_notifier import DiscordNotifier
 
 # Configure logging
 logging.basicConfig(
@@ -61,6 +63,15 @@ class ScraperScheduler:
         self.error_count = 0
         self.total_listings_found = 0
         self._should_stop = False
+        
+        # Initialize Discord notifier if webhook URL is available
+        webhook_url = get_discord_webhook_url()
+        self.discord_notifier: Optional[DiscordNotifier] = None
+        if webhook_url:
+            self.discord_notifier = DiscordNotifier(webhook_url)
+            logger.info("✅ Discord notifier initialized")
+        else:
+            logger.warning("⚠️  DISCORD_WEBHOOK_URL not set - Discord alerts disabled")
     
     async def run_scraper_cycle(self) -> dict:
         """
@@ -125,6 +136,21 @@ class ScraperScheduler:
                 
                 print(f"{'='*60}\n")
                 
+                # Send top listings to Discord if notifier is available
+                discord_stats = None
+                if self.discord_notifier and listings:
+                    # Select top listings (sorted by price, lowest first)
+                    sorted_listings = sorted(listings, key=lambda x: x.price_jpy)
+                    top_listings = sorted_listings[:MAX_ALERTS_PER_CYCLE]
+                    
+                    if top_listings:
+                        logger.info(f"📤 Sending top {len(top_listings)} listings to Discord...")
+                        discord_stats = await self.discord_notifier.send_listings(top_listings)
+                        logger.info(
+                            f"✅ Discord alerts sent: {discord_stats['sent']} successful, "
+                            f"{discord_stats['failed']} failed"
+                        )
+                
                 self.success_count += 1
                 
                 return {
@@ -134,6 +160,7 @@ class ScraperScheduler:
                     'listings_found': len(listings),
                     'listings': listings,
                     'timestamp': cycle_start.isoformat(),
+                    'discord_alerts': discord_stats,
                 }
                 
         except Exception as e:
@@ -208,6 +235,9 @@ class ScraperScheduler:
             print(f"Error: {str(e)}")
             print(f"{'='*60}\n")
         finally:
+            # Clean up Discord notifier
+            if self.discord_notifier:
+                await self.discord_notifier.close()
             self.print_final_stats()
     
     def stop(self):

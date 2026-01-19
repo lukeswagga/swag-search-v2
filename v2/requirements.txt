@@ -8,3 +8,6 @@ greenlet>=3.0.0  # Required for async SQLAlchemy
 aiohttp>=3.9.0  # Async HTTP client
 beautifulsoup4>=4.12.0  # HTML parsing
 
+# Environment variable management
+python-dotenv>=1.0.0  # Load .env files
+

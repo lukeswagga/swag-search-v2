@@ -4,6 +4,16 @@ Configuration for v2 scrapers
 import os
 from typing import Optional
 
+# Load environment variables from .env file if it exists
+try:
+    from dotenv import load_dotenv
+    # Load .env file from project root (parent directory)
+    env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '.env')
+    load_dotenv(env_path)
+except ImportError:
+    # python-dotenv not installed, skip loading .env file
+    pass
+
 # Yahoo Auctions Configuration
 YAHOO_BASE_URL = "https://auctions.yahoo.co.jp"
 YAHOO_SEARCH_URL = "https://auctions.yahoo.co.jp/search/search"
@@ -34,6 +44,13 @@ def get_database_url() -> Optional[str]:
     """Get database connection string from environment"""
     # Try DATABASE_PUBLIC_URL first (Railway), then DATABASE_URL
     return os.getenv('DATABASE_PUBLIC_URL') or os.getenv('DATABASE_URL')
+
+# Discord Configuration
+def get_discord_webhook_url() -> Optional[str]:
+    """Get Discord webhook URL from environment"""
+    return os.getenv('DISCORD_WEBHOOK_URL')
+
+MAX_ALERTS_PER_CYCLE = 10  # Maximum number of listings to send to Discord per cycle
 
 # Request Headers
 DEFAULT_HEADERS = {
