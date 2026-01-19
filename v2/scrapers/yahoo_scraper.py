@@ -1,13 +1,18 @@
 """
 Async Yahoo Japan scraper - 10x faster with parallel processing
 Uses aiohttp + BeautifulSoup for async HTML parsing
+Production-ready with rate limiting and error handling
 """
 import asyncio
 import aiohttp
 from bs4 import BeautifulSoup
 import urllib.parse
+import random
+import logging
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timezone
+
+logger = logging.getLogger(__name__)
 
 # Handle imports - try relative first, then absolute
 import sys
@@ -20,8 +25,10 @@ if _parent_dir not in sys.path:
 
 try:
     from .base import BaseScraper
+    from .rate_limiter import RateLimiter, RateLimiterManager
 except ImportError:
     from scrapers.base import BaseScraper
+    from scrapers.rate_limiter import RateLimiter, RateLimiterManager
 
 try:
     from ..config import (
@@ -30,8 +37,12 @@ try:
         YAHOO_CONNECT_TIMEOUT,
         YAHOO_MAX_RETRIES,
         YAHOO_RETRY_BACKOFF_BASE,
-        YAHOO_RATE_LIMIT_DELAY,
+        YAHOO_MAX_REQUESTS_PER_MINUTE,
+        YAHOO_MIN_DELAY_BETWEEN_REQUESTS,
+        YAHOO_REQUEST_DELAY_MIN,
+        YAHOO_REQUEST_DELAY_MAX,
         MAX_CONCURRENT_REQUESTS,
+        MAX_PARALLEL_PAGES_PER_BRAND,
         BATCH_SIZE,
         DEFAULT_HEADERS
     )
@@ -42,8 +53,12 @@ except ImportError:
         YAHOO_CONNECT_TIMEOUT,
         YAHOO_MAX_RETRIES,
         YAHOO_RETRY_BACKOFF_BASE,
-        YAHOO_RATE_LIMIT_DELAY,
+        YAHOO_MAX_REQUESTS_PER_MINUTE,
+        YAHOO_MIN_DELAY_BETWEEN_REQUESTS,
+        YAHOO_REQUEST_DELAY_MIN,
+        YAHOO_REQUEST_DELAY_MAX,
         MAX_CONCURRENT_REQUESTS,
+        MAX_PARALLEL_PAGES_PER_BRAND,
         BATCH_SIZE,
         DEFAULT_HEADERS
     )
@@ -55,12 +70,23 @@ except ImportError:
 
 
 class YahooScraper(BaseScraper):
-    """Async Yahoo Japan scraper with parallel processing"""
+    """Async Yahoo Japan scraper with parallel processing and rate limiting"""
     
     def __init__(self):
         super().__init__()
         self.session: Optional[aiohttp.ClientSession] = None
         self._semaphore = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
+        # Initialize rate limiter for Yahoo domain
+        self.rate_limiter = RateLimiter(
+            domain="auctions.yahoo.co.jp",
+            max_requests_per_minute=YAHOO_MAX_REQUESTS_PER_MINUTE
+        )
+        # Log rate limiter state at startup
+        stats = self.rate_limiter.get_stats()
+        if stats['in_backoff']:
+            logger.warning(
+                f"⚠️  Rate limiter for {stats['domain']} is in backoff until {stats['backoff_until']}"
+            )
     
     async def __aenter__(self):
         """Async context manager entry"""
@@ -72,7 +98,7 @@ class YahooScraper(BaseScraper):
         await self._close_session()
     
     async def _create_session(self):
-        """Create aiohttp session with connection pooling"""
+        """Create aiohttp session with connection pooling and rate limiter headers"""
         if self.session is None or self.session.closed:
             connector = aiohttp.TCPConnector(
                 limit=MAX_CONCURRENT_REQUESTS,
@@ -83,10 +109,12 @@ class YahooScraper(BaseScraper):
                 total=YAHOO_TIMEOUT,
                 connect=YAHOO_CONNECT_TIMEOUT
             )
+            # Use rate limiter headers (includes rotating user agent)
+            headers = self.rate_limiter.get_headers()
             self.session = aiohttp.ClientSession(
                 connector=connector,
                 timeout=timeout,
-                headers=DEFAULT_HEADERS
+                headers=headers
             )
     
     async def _close_session(self):
@@ -154,7 +182,7 @@ class YahooScraper(BaseScraper):
     
     async def fetch_page_with_retry(self, url: str) -> Optional[str]:
         """
-        Fetch page with exponential backoff retry logic
+        Fetch page with rate limiting, exponential backoff retry logic, and random delays
         
         Args:
             url: URL to fetch
@@ -167,26 +195,78 @@ class YahooScraper(BaseScraper):
         
         for attempt in range(1, YAHOO_MAX_RETRIES + 1):
             try:
-                async with self._semaphore:  # Rate limiting
+                # For first request, add longer initial delay to avoid immediate blocking
+                # Yahoo may have temporarily blocked IP from previous failed attempts
+                if attempt == 1 and len(self.rate_limiter.request_times) == 0:
+                    # First request ever - wait 10 seconds to let any IP blocks clear
+                    # If you're still getting 500s, wait 5-10 minutes between test runs
+                    logger.info("⏳ Initial delay before first request (10s) - Yahoo may have temporarily blocked IP...")
+                    await asyncio.sleep(10.0)
+                
+                # Acquire rate limiter permission (waits if needed, enforces min delay)
+                await self.rate_limiter.acquire(min_delay=YAHOO_MIN_DELAY_BETWEEN_REQUESTS)
+                
+                async with self._semaphore:  # Concurrency limiting
+                    # Add small random jitter (0.1-0.3s) to avoid synchronized requests
+                    if attempt == 1:  # Only on first attempt, not retries
+                        jitter = random.uniform(0.1, 0.3)
+                        await asyncio.sleep(jitter)
+                    
                     async with self.session.get(url) as response:
                         if response.status == 200:
                             html = await response.text()
-                            # Small delay to avoid overwhelming Yahoo
-                            await asyncio.sleep(YAHOO_RATE_LIMIT_DELAY)
+                            # Record success (resets backoff)
+                            self.rate_limiter.record_success()
                             return html
-                        elif response.status >= 500:
-                            # Server error - retry with exponential backoff
+                        elif response.status == 500:
+                            # HTTP 500 on first request likely means IP is blocked
+                            if attempt == 1 and len(self.rate_limiter.request_times) == 0:
+                                logger.error(
+                                    f"❌ HTTP 500 on FIRST request - Yahoo Japan has likely BLOCKED your IP address"
+                                )
+                                logger.error(
+                                    "   💡 Solutions:"
+                                )
+                                logger.error(
+                                    "   1. Wait 30-60 minutes before trying again"
+                                )
+                                logger.error(
+                                    "   2. Test with: python3 test_ip_block.py"
+                                )
+                                logger.error(
+                                    "   3. Try a different network (mobile hotspot, VPN)"
+                                )
+                                logger.error(
+                                    "   4. Check if https://auctions.yahoo.co.jp works in your browser"
+                                )
+                            
+                            # Record error and retry with exponential backoff
+                            self.rate_limiter.record_error(response.status, YAHOO_RETRY_BACKOFF_BASE)
+                            
                             if attempt < YAHOO_MAX_RETRIES:
                                 delay = YAHOO_RETRY_BACKOFF_BASE ** attempt
-                                print(f"❌ HTTP {response.status} for {url}")
-                                print(f"   ⏳ Retry {attempt}/{YAHOO_MAX_RETRIES} after {delay}s...")
+                                logger.warning(f"❌ HTTP {response.status} for {url[:80]}...")
+                                logger.warning(f"   ⏳ Retry {attempt}/{YAHOO_MAX_RETRIES} after {delay}s...")
                                 await asyncio.sleep(delay)
                                 continue
                             else:
-                                print(f"❌ HTTP {response.status} for {url} (all retries exhausted)")
+                                logger.error(f"❌ HTTP {response.status} for {url[:80]}... (all retries exhausted)")
+                                return None
+                        elif response.status in (429, 502, 503, 504):
+                            # Other server errors - record and retry
+                            self.rate_limiter.record_error(response.status, YAHOO_RETRY_BACKOFF_BASE)
+                            
+                            if attempt < YAHOO_MAX_RETRIES:
+                                delay = YAHOO_RETRY_BACKOFF_BASE ** attempt
+                                logger.warning(f"❌ HTTP {response.status} for {url[:80]}...")
+                                logger.warning(f"   ⏳ Retry {attempt}/{YAHOO_MAX_RETRIES} after {delay}s...")
+                                await asyncio.sleep(delay)
+                                continue
+                            else:
+                                logger.error(f"❌ HTTP {response.status} for {url[:80]}... (all retries exhausted)")
                                 return None
                         else:
-                            # Client error - don't retry
+                            # Client error (4xx) - don't retry
                             print(f"❌ HTTP {response.status} for {url}")
                             return None
             except asyncio.TimeoutError:
@@ -331,7 +411,7 @@ class YahooScraper(BaseScraper):
         max_price: Optional[int] = None
     ) -> List[Dict[str, Any]]:
         """
-        Scrape multiple pages for a brand (parallel page fetching)
+        Scrape multiple pages for a brand (SEQUENTIALLY to avoid rate limiting)
         
         Args:
             brand: Brand name to search for
@@ -341,22 +421,23 @@ class YahooScraper(BaseScraper):
         Returns:
             List of listing dictionaries
         """
-        # Create tasks for all pages
-        tasks = [
-            self.scrape_brand_page(brand, page, max_price)
-            for page in range(1, max_pages + 1)
-        ]
-        
-        # Fetch all pages in parallel
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        
-        # Flatten results and filter out errors
         all_listings = []
-        for result in results:
-            if isinstance(result, Exception):
-                print(f"❌ Error scraping page for {brand}: {result}")
+        
+        # Process pages SEQUENTIALLY (one at a time) to avoid Yahoo 500 errors
+        # Parallel requests cause immediate blocking
+        for page in range(1, max_pages + 1):
+            try:
+                page_listings = await self.scrape_brand_page(brand, page, max_price)
+                all_listings.extend(page_listings)
+                
+                # Delay between pages (2-3 seconds like the original scraper)
+                if page < max_pages:
+                    delay = random.uniform(2.0, 3.0)
+                    await asyncio.sleep(delay)
+            except Exception as e:
+                logger.error(f"❌ Error scraping page {page} for {brand}: {e}")
+                # Continue to next page even if one fails
                 continue
-            all_listings.extend(result)
         
         return all_listings
     
@@ -383,7 +464,7 @@ class YahooScraper(BaseScraper):
         max_price: Optional[int] = None
     ) -> List[Listing]:
         """
-        Main scraping method - scrapes all brands in parallel
+        Main scraping method - scrapes brands sequentially to avoid rate limiting
         
         Args:
             brands: List of brand names to search for
@@ -396,21 +477,28 @@ class YahooScraper(BaseScraper):
         await self._create_session()
         
         try:
-            # Scrape all brands in parallel
-            brand_tasks = [
-                self.scrape_brand(brand, max_pages=5, max_price=max_price)
-                for brand in brands
-            ]
-            
-            brand_results = await asyncio.gather(*brand_tasks, return_exceptions=True)
-            
-            # Flatten and process results
+            # Process brands SEQUENTIALLY to avoid overwhelming Yahoo
+            # Parallel requests cause immediate 500 errors
             all_listings = []
-            for i, result in enumerate(brand_results):
-                if isinstance(result, Exception):
-                    print(f"❌ Error scraping {brands[i]}: {result}")
+            for brand in brands:
+                try:
+                    brand_listings = await self.scrape_brand(brand, max_pages=5, max_price=max_price)
+                    all_listings.extend(brand_listings)
+                    # Small delay between brands
+                    if brand != brands[-1]:  # Don't delay after last brand
+                        await asyncio.sleep(1.0)
+                except Exception as e:
+                    logger.error(f"❌ Error scraping {brand}: {e}")
                     continue
-                all_listings.extend(result)
+            
+            # Old parallel approach (causes 500 errors):
+            # brand_tasks = [
+            #     self.scrape_brand(brand, max_pages=5, max_price=max_price)
+            #     for brand in brands
+            # ]
+            # brand_results = await asyncio.gather(*brand_tasks, return_exceptions=True)
+            
+            # Results already collected in sequential loop above
             
             # Deduplicate by URL
             unique_listings = self.deduplicate(all_listings, key_field='url')
