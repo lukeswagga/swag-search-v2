@@ -159,17 +159,16 @@ class DiscordNotifier:
         if raw_id.startswith('u') and raw_id[1:].isdigit():
             raw_id = raw_id[1:]
         
-        # For ZenMarket Yahoo, we might need the 'u' prefix
-        zenmarket_id = listing.external_id
-        if listing.market.lower() == "yahoo" and not zenmarket_id.startswith('u') and zenmarket_id.isdigit():
-            zenmarket_id = f"u{zenmarket_id}"
-        
         if listing.market.lower() == "yahoo":
-            buyee_url = f"https://buyee.jp/item/yahoo/auction/{raw_id}"
-            zenmarket_url = f"https://zenmarket.jp/en/yahoo.aspx?itemCode={zenmarket_id}"
+            # Yahoo Auctions
+            # Buyee format: https://buyee.jp/mercari/item/m50606000407 (for Mercari)
+            #               https://buyee.jp/item/jdirectitems/auction/e1216651131 (for Yahoo)
+            # ZenMarket format: https://zenmarket.jp/en/auction.aspx?itemCode=t1128108055
+            buyee_url = f"https://buyee.jp/item/jdirectitems/auction/{raw_id}"
+            zenmarket_url = f"https://zenmarket.jp/en/auction.aspx?itemCode={listing.external_id}"
         elif listing.market.lower() == "mercari":
-            buyee_url = f"https://buyee.jp/item/mercari/{raw_id}"
-            zenmarket_url = f"https://zenmarket.jp/en/mercari.aspx?itemCode={raw_id}"
+            buyee_url = f"https://buyee.jp/mercari/item/{raw_id}"
+            zenmarket_url = f"https://zenmarket.jp/en/mercariproduct.aspx?itemCode={raw_id}"
         else:
             # Fallback for unknown markets
             buyee_url = listing.url
