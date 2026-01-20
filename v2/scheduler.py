@@ -20,10 +20,12 @@ if _parent_dir not in sys.path:
 
 try:
     from scrapers.yahoo_scraper import YahooScraper
+    from scrapers.mercari_api_scraper import MercariAPIScraper
     from config import SCRAPER_RUN_INTERVAL_SECONDS, get_discord_webhook_url, MAX_ALERTS_PER_CYCLE
     from discord_notifier import DiscordNotifier
 except ImportError:
     from v2.scrapers.yahoo_scraper import YahooScraper
+    from v2.scrapers.mercari_api_scraper import MercariAPIScraper
     from v2.config import SCRAPER_RUN_INTERVAL_SECONDS, get_discord_webhook_url, MAX_ALERTS_PER_CYCLE
     from v2.discord_notifier import DiscordNotifier
 
@@ -62,6 +64,8 @@ class ScraperScheduler:
         self.success_count = 0
         self.error_count = 0
         self.total_listings_found = 0
+        self.total_yahoo_listings = 0
+        self.total_mercari_listings = 0
         self._should_stop = False
         
         # Initialize Discord notifier if webhook URL is available
@@ -75,7 +79,7 @@ class ScraperScheduler:
     
     async def run_scraper_cycle(self) -> dict:
         """
-        Run a single scraper cycle
+        Run a single scraper cycle with both Yahoo and Mercari scrapers
         
         Returns:
             Dictionary with cycle results
@@ -85,83 +89,145 @@ class ScraperScheduler:
         
         logger.info(f"🔄 Starting scraper cycle #{self.run_count} at {cycle_start.strftime('%Y-%m-%d %H:%M:%S')}")
         logger.info(f"   Brands: {', '.join(self.brands)}")
+        logger.info(f"   Running both Yahoo and Mercari scrapers...")
         
         try:
-            async with YahooScraper() as scraper:
-                listings = await scraper.scrape(
-                    brands=self.brands,
-                    max_price=self.max_price
-                )
+            # Run both scrapers in parallel
+            yahoo_start = datetime.now()
+            mercari_start = datetime.now()
+            
+            async def run_yahoo():
+                async with YahooScraper() as scraper:
+                    return await scraper.scrape(
+                        brands=self.brands,
+                        max_price=self.max_price
+                    )
+            
+            async def run_mercari():
+                async with MercariAPIScraper() as scraper:
+                    return await scraper.scrape(
+                        brands=self.brands,
+                        max_price=self.max_price
+                    )
+            
+            # Run both scrapers concurrently
+            yahoo_task = asyncio.create_task(run_yahoo())
+            mercari_task = asyncio.create_task(run_mercari())
+            
+            yahoo_listings, mercari_listings = await asyncio.gather(
+                yahoo_task,
+                mercari_task,
+                return_exceptions=True
+            )
+            
+            # Handle exceptions
+            if isinstance(yahoo_listings, Exception):
+                logger.error(f"❌ Yahoo scraper failed: {yahoo_listings}")
+                yahoo_listings = []
+            
+            if isinstance(mercari_listings, Exception):
+                logger.error(f"❌ Mercari scraper failed: {mercari_listings}")
+                mercari_listings = []
+            
+            yahoo_duration = (datetime.now() - yahoo_start).total_seconds()
+            mercari_duration = (datetime.now() - mercari_start).total_seconds()
+            
+            # Log individual scraper stats
+            logger.info(f"📊 Yahoo: {len(yahoo_listings)} listings in {yahoo_duration:.2f}s")
+            logger.info(f"📊 Mercari: {len(mercari_listings)} listings in {mercari_duration:.2f}s")
+            
+            # Combine listings from both sources
+            all_listings = list(yahoo_listings) + list(mercari_listings)
+            
+            cycle_end = datetime.now()
+            total_duration = (cycle_end - cycle_start).total_seconds()
+            
+            # Update totals
+            self.total_listings_found += len(all_listings)
+            self.total_yahoo_listings += len(yahoo_listings)
+            self.total_mercari_listings += len(mercari_listings)
+            
+            # Check if we got 0 listings (might indicate rate limiting)
+            if len(all_listings) == 0:
+                logger.warning(f"⚠️  Cycle #{self.run_count} completed in {total_duration:.2f}s but found 0 listings")
+                logger.warning(f"   Yahoo: {len(yahoo_listings)}, Mercari: {len(mercari_listings)}")
+            else:
+                logger.info(f"✅ Cycle #{self.run_count} completed in {total_duration:.2f}s")
+                logger.info(f"   Total: {len(all_listings)} listings ({len(yahoo_listings)} Yahoo + {len(mercari_listings)} Mercari)")
+            
+            # Print results summary
+            print(f"\n{'='*60}")
+            print(f"Cycle #{self.run_count} Results")
+            print(f"{'='*60}")
+            print(f"Total duration: {total_duration:.2f} seconds")
+            print(f"  Yahoo: {yahoo_duration:.2f}s, {len(yahoo_listings)} listings")
+            print(f"  Mercari: {mercari_duration:.2f}s, {len(mercari_listings)} listings")
+            print(f"Total listings: {len(all_listings)}")
+            if len(all_listings) == 0:
+                print("⚠️  WARNING: 0 listings found - possible rate limiting!")
+            print(f"Brands searched: {len(self.brands)}")
+            
+            if all_listings:
+                # Group by market
+                by_market = {}
+                for listing in all_listings:
+                    market = listing.market or "Unknown"
+                    by_market[market] = by_market.get(market, 0) + 1
                 
-                cycle_end = datetime.now()
-                duration = (cycle_end - cycle_start).total_seconds()
+                print(f"\nListings by market:")
+                for market, count in sorted(by_market.items()):
+                    print(f"  {market}: {count}")
                 
-                self.total_listings_found += len(listings)
+                # Group by brand
+                by_brand = {}
+                for listing in all_listings:
+                    brand = listing.brand or "Unknown"
+                    by_brand[brand] = by_brand.get(brand, 0) + 1
                 
-                # Check if we got 0 listings (might indicate rate limiting)
-                if len(listings) == 0:
-                    logger.warning(f"⚠️  Cycle #{self.run_count} completed in {duration:.2f}s but found 0 listings")
-                    logger.warning(f"   This might indicate rate limiting or Yahoo blocking requests")
-                else:
-                    logger.info(f"✅ Cycle #{self.run_count} completed in {duration:.2f}s")
-                    logger.info(f"   Found {len(listings)} listings")
+                print(f"\nListings by brand:")
+                for brand, count in sorted(by_brand.items()):
+                    print(f"  {brand}: {count}")
                 
-                # Print results summary
-                print(f"\n{'='*60}")
-                print(f"Cycle #{self.run_count} Results")
-                print(f"{'='*60}")
-                print(f"Duration: {duration:.2f} seconds")
-                print(f"Listings found: {len(listings)}")
-                if len(listings) == 0:
-                    print("⚠️  WARNING: 0 listings found - possible rate limiting!")
-                print(f"Brands searched: {len(self.brands)}")
+                # Show sample listings (sorted by price)
+                sorted_all = sorted(all_listings, key=lambda x: x.price_jpy)
+                print(f"\nSample listings (top 5 by price):")
+                for i, listing in enumerate(sorted_all[:5], 1):
+                    print(f"  {i}. [{listing.market}] {listing.title[:50]}...")
+                    print(f"     Price: ¥{listing.price_jpy:,} | Type: {listing.listing_type}")
+                    print(f"     URL: {listing.url}")
+            
+            print(f"{'='*60}\n")
+            
+            # Send top listings to Discord if notifier is available
+            discord_stats = None
+            if self.discord_notifier and all_listings:
+                # Select top listings (sorted by price, lowest first)
+                sorted_listings = sorted(all_listings, key=lambda x: x.price_jpy)
+                top_listings = sorted_listings[:MAX_ALERTS_PER_CYCLE]
                 
-                if listings:
-                    # Group by brand
-                    by_brand = {}
-                    for listing in listings:
-                        brand = listing.brand or "Unknown"
-                        by_brand[brand] = by_brand.get(brand, 0) + 1
-                    
-                    print(f"\nListings by brand:")
-                    for brand, count in sorted(by_brand.items()):
-                        print(f"  {brand}: {count}")
-                    
-                    # Show sample listings
-                    print(f"\nSample listings (first 5):")
-                    for i, listing in enumerate(listings[:5], 1):
-                        print(f"  {i}. {listing.title[:60]}...")
-                        print(f"     Price: ¥{listing.price_jpy:,} | Type: {listing.listing_type}")
-                        print(f"     URL: {listing.url}")
-                
-                print(f"{'='*60}\n")
-                
-                # Send top listings to Discord if notifier is available
-                discord_stats = None
-                if self.discord_notifier and listings:
-                    # Select top listings (sorted by price, lowest first)
-                    sorted_listings = sorted(listings, key=lambda x: x.price_jpy)
-                    top_listings = sorted_listings[:MAX_ALERTS_PER_CYCLE]
-                    
-                    if top_listings:
-                        logger.info(f"📤 Sending top {len(top_listings)} listings to Discord...")
-                        discord_stats = await self.discord_notifier.send_listings(top_listings)
-                        logger.info(
-                            f"✅ Discord alerts sent: {discord_stats['sent']} successful, "
-                            f"{discord_stats['failed']} failed"
-                        )
-                
-                self.success_count += 1
-                
-                return {
-                    'success': True,
-                    'run_number': self.run_count,
-                    'duration_seconds': duration,
-                    'listings_found': len(listings),
-                    'listings': listings,
-                    'timestamp': cycle_start.isoformat(),
-                    'discord_alerts': discord_stats,
-                }
+                if top_listings:
+                    logger.info(f"📤 Sending top {len(top_listings)} listings to Discord...")
+                    discord_stats = await self.discord_notifier.send_listings(top_listings)
+                    logger.info(
+                        f"✅ Discord alerts sent: {discord_stats['sent']} successful, "
+                        f"{discord_stats['failed']} failed"
+                    )
+            
+            self.success_count += 1
+            
+            return {
+                'success': True,
+                'run_number': self.run_count,
+                'duration_seconds': total_duration,
+                'yahoo_duration': yahoo_duration,
+                'mercari_duration': mercari_duration,
+                'listings_found': len(all_listings),
+                'yahoo_listings': len(yahoo_listings),
+                'mercari_listings': len(mercari_listings),
+                'listings': all_listings,
+                'timestamp': cycle_start.isoformat(),
+                'discord_alerts': discord_stats,
+            }
                 
         except Exception as e:
             cycle_end = datetime.now()
@@ -214,7 +280,8 @@ class ScraperScheduler:
                     f"📊 Overall stats: {self.run_count} runs, "
                     f"{self.success_count} successful, {self.error_count} errors "
                     f"({success_rate:.1f}% success rate), "
-                    f"{self.total_listings_found} total listings"
+                    f"{self.total_listings_found} total listings "
+                    f"({self.total_yahoo_listings} Yahoo + {self.total_mercari_listings} Mercari)"
                 )
                 
                 # Wait before next cycle (unless we should stop)
@@ -257,12 +324,15 @@ class ScraperScheduler:
         print(f"Errors: {self.error_count}")
         print(f"Success rate: {success_rate:.1f}%")
         print(f"Total listings found: {self.total_listings_found}")
+        print(f"  Yahoo: {self.total_yahoo_listings}")
+        print(f"  Mercari: {self.total_mercari_listings}")
         print(f"{'='*60}\n")
         
         logger.info(
             f"📊 Final stats: {self.run_count} cycles, "
             f"{self.success_count} successful, {self.error_count} errors, "
-            f"{self.total_listings_found} total listings"
+            f"{self.total_listings_found} total listings "
+            f"({self.total_yahoo_listings} Yahoo + {self.total_mercari_listings} Mercari)"
         )
 
 
