@@ -11,10 +11,12 @@ if _parent_dir not in sys.path:
 
 try:
     from .yahoo_scraper import YahooScraper
+    from .mercari_api_scraper import MercariAPIScraper
     from .base import BaseScraper
 except ImportError:
     from scrapers.yahoo_scraper import YahooScraper
+    from scrapers.mercari_api_scraper import MercariAPIScraper
     from scrapers.base import BaseScraper
 
-__all__ = ['YahooScraper', 'BaseScraper']
+__all__ = ['YahooScraper', 'MercariAPIScraper', 'BaseScraper']
 

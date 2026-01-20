@@ -8,6 +8,13 @@ greenlet>=3.0.0  # Required for async SQLAlchemy
 aiohttp>=3.9.0  # Async HTTP client
 beautifulsoup4>=4.12.0  # HTML parsing
 
+# Browser automation (for Mercari scraper)
+playwright>=1.40.0  # Playwright for JavaScript rendering
+
+# JWT and cryptography (for Mercari API DPoP tokens)
+pyjwt>=2.8.0  # JWT token generation
+cryptography>=41.0.0  # Cryptographic primitives for ES256
+
 # Environment variable management
 python-dotenv>=1.0.0  # Load .env files
 

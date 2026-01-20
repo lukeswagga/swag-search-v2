@@ -52,6 +52,21 @@ def get_discord_webhook_url() -> Optional[str]:
 
 MAX_ALERTS_PER_CYCLE = 10  # Maximum number of listings to send to Discord per cycle
 
+# Mercari Configuration
+MERCARI_BASE_URL = "https://jp.mercari.com"
+MERCARI_SEARCH_URL = "https://jp.mercari.com/search"
+
+# Rate Limiting - Mercari
+# Conservative settings for Playwright (browser automation is slower)
+MERCARI_MAX_REQUESTS_PER_MINUTE = 80  # Same as Yahoo
+MERCARI_MIN_DELAY_BETWEEN_REQUESTS = 0.5  # Minimum delay between requests (seconds)
+MERCARI_MAX_RETRIES = 3  # Max retries for 500/429 errors
+MERCARI_RETRY_BACKOFF_BASE = 2  # Exponential backoff base (2^attempt)
+MERCARI_TIMEOUT = 30  # Request timeout in seconds (Playwright needs more time)
+
+# Browser Settings
+HEADLESS_BROWSER = os.getenv('HEADLESS_BROWSER', 'True').lower() == 'true'  # Default to True for Railway deployment
+
 # Request Headers
 DEFAULT_HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
