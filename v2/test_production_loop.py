@@ -12,6 +12,7 @@ import asyncio
 import logging
 import sys
 import os
+import random
 from datetime import datetime
 from pathlib import Path
 
@@ -93,17 +94,19 @@ class TestScheduler(ScraperScheduler):
                 yahoo_listings = [l for l in all_listings if l.market == 'yahoo']
                 mercari_listings = [l for l in all_listings if l.market == 'mercari']
                 
-                # Sort each by price (lowest first)
-                yahoo_sorted = sorted(yahoo_listings, key=lambda x: x.price_jpy)
-                mercari_sorted = sorted(mercari_listings, key=lambda x: x.price_jpy)
+                # Shuffle to get random sample (not just cheapest)
+                yahoo_shuffled = yahoo_listings.copy()
+                random.shuffle(yahoo_shuffled)
+                mercari_shuffled = mercari_listings.copy()
+                random.shuffle(mercari_shuffled)
                 
-                # Get top 10 from each
-                top_yahoo = yahoo_sorted[:10]
-                top_mercari = mercari_sorted[:10]
+                # Get random 10 from each (or all if less than 10)
+                top_yahoo = yahoo_shuffled[:10]
+                top_mercari = mercari_shuffled[:10]
                 
                 # Send Yahoo listings first
                 if top_yahoo:
-                    logger.info(f"📤 [TEST MODE] Sending top {len(top_yahoo)} Yahoo listings to Discord...")
+                    logger.info(f"📤 [TEST MODE] Sending {len(top_yahoo)} random Yahoo listings to Discord...")
                     yahoo_stats = await self.discord_notifier.send_listings(top_yahoo)
                     logger.info(
                         f"✅ Yahoo alerts sent: {yahoo_stats['sent']} successful, "
@@ -115,7 +118,7 @@ class TestScheduler(ScraperScheduler):
                 
                 # Send Mercari listings second
                 if top_mercari:
-                    logger.info(f"📤 [TEST MODE] Sending top {len(top_mercari)} Mercari listings to Discord...")
+                    logger.info(f"📤 [TEST MODE] Sending {len(top_mercari)} random Mercari listings to Discord...")
                     mercari_stats = await self.discord_notifier.send_listings(top_mercari)
                     logger.info(
                         f"✅ Mercari alerts sent: {mercari_stats['sent']} successful, "
@@ -256,8 +259,8 @@ class TestScheduler(ScraperScheduler):
 
 async def main():
     """Main entry point for test"""
-    # Example brands - replace with your actual brands
-    brands = ["Supreme", "Bape", "Nike"]
+    # Archive brands for testing
+    brands = ["Rick Owens", "Comme Des Garcons", "Raf Simons"]
     
     # Run for 2 cycles (10 minutes total with 5-minute intervals)
     scheduler = TestScheduler(
