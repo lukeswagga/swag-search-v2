@@ -154,12 +154,16 @@ class YahooScraper(BaseScraper):
         params = {
             'p': keyword,
             'va': keyword,  # Verified auction parameter
-            'fixed': str(fixed_type),
             'is_postage_mode': '1',
             'dest_pref_code': '13',  # Tokyo prefecture for shipping
             'b': str(start_position),
             'n': str(page_size)
         }
+        
+        # Only add 'fixed' parameter if not sorting by newest
+        # Yahoo's default behavior (without 'fixed') matches Chrome's newest sort better
+        if sort_type != "new":
+            params['fixed'] = str(fixed_type)
         
         # Add price filter if specified
         if max_price:
@@ -170,8 +174,9 @@ class YahooScraper(BaseScraper):
             params['s1'] = 'end'
             params['o1'] = sort_order
         elif sort_type == "new":
+            # Use 'new' for newest listings (not 'cbids' which is for price/bids)
             params['s1'] = 'new'
-            params['o1'] = sort_order
+            params['o1'] = sort_order  # "d" for descending (newest first)
         elif sort_type == "price":
             params['s1'] = 'cbids'
             params['o1'] = sort_order

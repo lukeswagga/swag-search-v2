@@ -378,7 +378,7 @@ class MercariAPIScraper(BaseScraper):
             "searchCondition": {
                 "keyword": keyword,
                 "excludeKeyword": "",
-                "sort": "SORT_SCORE",
+                "sort": "SORT_CREATED_TIME",
                 "order": "ORDER_DESC",
                 "status": [],
                 "sizeId": [],
