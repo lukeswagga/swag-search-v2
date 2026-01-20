@@ -94,19 +94,14 @@ class TestScheduler(ScraperScheduler):
                 yahoo_listings = [l for l in all_listings if l.market == 'yahoo']
                 mercari_listings = [l for l in all_listings if l.market == 'mercari']
                 
-                # Shuffle to get random sample (not just cheapest)
-                yahoo_shuffled = yahoo_listings.copy()
-                random.shuffle(yahoo_shuffled)
-                mercari_shuffled = mercari_listings.copy()
-                random.shuffle(mercari_shuffled)
-                
-                # Get random 10 from each (or all if less than 10)
-                top_yahoo = yahoo_shuffled[:10]
-                top_mercari = mercari_shuffled[:10]
+                # Keep listings in newest-first order (already sorted by scrapers)
+                # Take first 10 from each (newest listings)
+                top_yahoo = yahoo_listings[:10]
+                top_mercari = mercari_listings[:10]
                 
                 # Send Yahoo listings first
                 if top_yahoo:
-                    logger.info(f"📤 [TEST MODE] Sending {len(top_yahoo)} random Yahoo listings to Discord...")
+                    logger.info(f"📤 [TEST MODE] Sending {len(top_yahoo)} newest Yahoo listings to Discord...")
                     yahoo_stats = await self.discord_notifier.send_listings(top_yahoo)
                     logger.info(
                         f"✅ Yahoo alerts sent: {yahoo_stats['sent']} successful, "
@@ -118,7 +113,7 @@ class TestScheduler(ScraperScheduler):
                 
                 # Send Mercari listings second
                 if top_mercari:
-                    logger.info(f"📤 [TEST MODE] Sending {len(top_mercari)} random Mercari listings to Discord...")
+                    logger.info(f"📤 [TEST MODE] Sending {len(top_mercari)} newest Mercari listings to Discord...")
                     mercari_stats = await self.discord_notifier.send_listings(top_mercari)
                     logger.info(
                         f"✅ Mercari alerts sent: {mercari_stats['sent']} successful, "

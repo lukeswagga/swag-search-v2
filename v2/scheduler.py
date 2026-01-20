@@ -188,10 +188,9 @@ class ScraperScheduler:
                 for brand, count in sorted(by_brand.items()):
                     print(f"  {brand}: {count}")
                 
-                # Show sample listings (sorted by price)
-                sorted_all = sorted(all_listings, key=lambda x: x.price_jpy)
-                print(f"\nSample listings (top 5 by price):")
-                for i, listing in enumerate(sorted_all[:5], 1):
+                # Show sample listings (newest first - already sorted by scrapers)
+                print(f"\nSample listings (top 5 newest):")
+                for i, listing in enumerate(all_listings[:5], 1):
                     print(f"  {i}. [{listing.market}] {listing.title[:50]}...")
                     print(f"     Price: ¥{listing.price_jpy:,} | Type: {listing.listing_type}")
                     print(f"     URL: {listing.url}")
@@ -201,9 +200,9 @@ class ScraperScheduler:
             # Send top listings to Discord if notifier is available
             discord_stats = None
             if self.discord_notifier and all_listings:
-                # Select top listings (sorted by price, lowest first)
-                sorted_listings = sorted(all_listings, key=lambda x: x.price_jpy)
-                top_listings = sorted_listings[:MAX_ALERTS_PER_CYCLE]
+                # Select top listings (already sorted newest-first by scrapers)
+                # Keep the order from scrapers - newest listings first
+                top_listings = all_listings[:MAX_ALERTS_PER_CYCLE]
                 
                 if top_listings:
                     logger.info(f"📤 Sending top {len(top_listings)} listings to Discord...")
