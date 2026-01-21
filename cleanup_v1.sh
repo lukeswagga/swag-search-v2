@@ -40,3 +40,5 @@ echo "1. Review the changes: git status"
 echo "2. Commit: git commit -m 'Remove v1 files, keep only v2/ and current/'"
 echo "3. Push: git push origin main"
 
+
+

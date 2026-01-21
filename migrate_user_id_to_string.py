@@ -18,7 +18,7 @@ try:
 except ImportError:
     from database import init_database
     from config import get_database_url
-    from v2 import database as db_module
+    import database as db_module
 
 logging.basicConfig(
     level=logging.INFO,

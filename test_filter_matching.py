@@ -32,7 +32,7 @@ except ImportError:
     from database import init_database, create_tables, save_listings_batch, get_active_filters, was_alert_sent, save_user_filter, get_listings_since
     from filter_matcher import FilterMatcher
     from config import get_database_url
-    from v2 import database as db_module
+    import database as db_module
 
 logging.basicConfig(
     level=logging.INFO,

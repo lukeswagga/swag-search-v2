@@ -1,11 +1,13 @@
 """
 Discord webhook notifier for listing alerts
-Sends formatted embeds with rate limiting (1 msg/second max)
+Sends formatted embeds with rate limiting (30 requests/min max)
 """
 import asyncio
 import aiohttp
 import logging
-from typing import Optional, List, Tuple
+import time
+from typing import Optional, List, Tuple, Deque
+from collections import deque
 from datetime import datetime
 from urllib.parse import quote
 
@@ -23,9 +25,9 @@ class DiscordNotifier:
     
     Features:
     - Sends formatted embeds for listings
-    - Rate limited to 1 message per second
+    - Rate limited to 30 requests per minute (Discord webhook limit)
     - Color-coded by price range
-    - Handles errors gracefully
+    - Handles errors gracefully with capped retry waits
     """
     
     # JPY to USD conversion rate (¥147 = $1)
@@ -40,6 +42,12 @@ class DiscordNotifier:
     COLOR_YELLOW = 16776960  # 0xFFFF00
     COLOR_RED = 15548997     # 0xED4245
     
+    # Discord webhook rate limits: 30 requests per minute
+    DISCORD_RATE_LIMIT = 30  # requests per minute
+    DISCORD_WINDOW = 60.0  # 60 second window
+    DISCORD_MIN_DELAY = 2.0  # Minimum 2 seconds between requests (30/min = 2s avg)
+    DISCORD_MAX_RETRY_WAIT = 15.0  # Cap retry-after at 15 seconds (not 400!)
+    
     def __init__(self, webhook_url: str):
         """
         Initialize Discord notifier
@@ -49,10 +57,11 @@ class DiscordNotifier:
         """
         self.webhook_url = webhook_url
         self._last_send_time = 0.0
-        self._min_delay = 1.0  # 1 second between messages
+        self._request_times: Deque[float] = deque()  # Sliding window of request times
         self._session: Optional[aiohttp.ClientSession] = None
         self._send_count = 0
         self._error_count = 0
+        self._rate_limit_count = 0
     
     async def _get_session(self) -> aiohttp.ClientSession:
         """Get or create aiohttp session"""
@@ -331,15 +340,43 @@ class DiscordNotifier:
         return embed
     
     async def _enforce_rate_limit(self):
-        """Enforce 1 message per second rate limit"""
-        current_time = asyncio.get_event_loop().time()
+        """
+        Enforce Discord webhook rate limit: 30 requests per minute
+        
+        Uses sliding window to track requests and ensures we never exceed the limit.
+        """
+        current_time = time.time()
+        
+        # Remove requests older than 1 minute from the window
+        cutoff_time = current_time - self.DISCORD_WINDOW
+        while self._request_times and self._request_times[0] < cutoff_time:
+            self._request_times.popleft()
+        
+        # Check if we're at the rate limit
+        if len(self._request_times) >= self.DISCORD_RATE_LIMIT:
+            # We've hit the limit, wait until the oldest request expires
+            oldest_request_time = self._request_times[0]
+            wait_time = (oldest_request_time + self.DISCORD_WINDOW) - current_time + 0.1  # Add small buffer
+            if wait_time > 0:
+                logger.debug(f"⏳ Rate limit approaching, waiting {wait_time:.1f}s...")
+                await asyncio.sleep(wait_time)
+                # Update current time after wait
+                current_time = time.time()
+                # Clean up old requests again after waiting
+                cutoff_time = current_time - self.DISCORD_WINDOW
+                while self._request_times and self._request_times[0] < cutoff_time:
+                    self._request_times.popleft()
+        
+        # Ensure minimum delay between requests (even if under limit)
         time_since_last_send = current_time - self._last_send_time
-        
-        if time_since_last_send < self._min_delay:
-            wait_time = self._min_delay - time_since_last_send
+        if time_since_last_send < self.DISCORD_MIN_DELAY:
+            wait_time = self.DISCORD_MIN_DELAY - time_since_last_send
             await asyncio.sleep(wait_time)
+            current_time = time.time()
         
-        self._last_send_time = asyncio.get_event_loop().time()
+        # Record this request time
+        self._request_times.append(current_time)
+        self._last_send_time = current_time
     
     async def send_listing(self, listing: Listing, filter_name: Optional[str] = None, user_id: Optional[str] = None) -> bool:
         """
@@ -373,10 +410,28 @@ class DiscordNotifier:
                     logger.info(f"✅ Discord alert sent: {listing.title[:50]}... (¥{listing.price_jpy:,})")
                     return True
                 elif response.status == 429:
-                    # Rate limited by Discord
-                    retry_after = int(response.headers.get('Retry-After', 5))
-                    logger.warning(f"⚠️  Discord rate limited, waiting {retry_after}s...")
+                    # Rate limited by Discord - cap the wait time to prevent long shutdowns
+                    retry_after_raw = response.headers.get('Retry-After', '5')
+                    try:
+                        retry_after = int(retry_after_raw)
+                    except (ValueError, TypeError):
+                        retry_after = 5
+                    
+                    # Cap retry wait at reasonable maximum (Discord can return 400+ seconds!)
+                    retry_after = min(retry_after, self.DISCORD_MAX_RETRY_WAIT)
+                    self._rate_limit_count += 1
+                    
+                    logger.warning(f"⚠️  Discord rate limited (cap at {self.DISCORD_MAX_RETRY_WAIT}s), waiting {retry_after}s... "
+                                 f"(Discord suggested {retry_after_raw}s, but we cap it)")
+                    
                     await asyncio.sleep(retry_after)
+                    
+                    # Reset rate limit tracking since we waited
+                    current_time = time.time()
+                    cutoff_time = current_time - self.DISCORD_WINDOW
+                    self._request_times.clear()  # Clear history after rate limit wait
+                    self._last_send_time = current_time - self.DISCORD_MIN_DELAY  # Reset last send time
+                    
                     # Retry once
                     async with session.post(self.webhook_url, json=payload) as retry_response:
                         if retry_response.status == 204:
@@ -459,6 +514,8 @@ class DiscordNotifier:
         """
         return {
             'total_sent': self._send_count,
-            'total_errors': self._error_count
+            'total_errors': self._error_count,
+            'rate_limits_hit': self._rate_limit_count,
+            'requests_in_window': len(self._request_times)
         }
 

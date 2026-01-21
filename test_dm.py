@@ -20,9 +20,9 @@ if _parent_dir not in sys.path:
     sys.path.insert(0, _parent_dir)
 
 try:
-    from v2.discord_bot import SwagSearchBot
-    from v2.config import get_discord_bot_token
-    from v2.models import Listing
+    from discord_bot import SwagSearchBot
+    from config import get_discord_bot_token
+    from models import Listing
 except ImportError:
     from discord_bot import SwagSearchBot
     from config import get_discord_bot_token

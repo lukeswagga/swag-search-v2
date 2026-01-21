@@ -1,2 +1,2 @@
-worker: python scheduler.py
+worker: cd /v2 && python scheduler.py
 

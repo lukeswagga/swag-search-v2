@@ -18,3 +18,5 @@ cryptography>=41.0.0  # Cryptographic primitives for ES256
 # Environment variable management
 python-dotenv>=1.0.0  # Load .env files
 
+# Discord bot
+discord.py>=2.3.2  # Discord bot library for DMs

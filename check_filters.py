@@ -12,8 +12,8 @@ if _parent_dir not in sys.path:
     sys.path.insert(0, _parent_dir)
 
 try:
-    from v2.database import init_database, get_active_filters
-    from v2.config import get_database_url
+    from database import init_database, get_active_filters
+    from config import get_database_url
 except ImportError:
     from database import init_database, get_active_filters
     from config import get_database_url

@@ -22,9 +22,9 @@ try:
     from config import get_discord_bot_token, get_discord_channel_id
     from models import Listing
 except ImportError:
-    from v2.discord_bot import SwagSearchBot
-    from v2.config import get_discord_bot_token, get_discord_channel_id
-    from v2.models import Listing
+    from discord_bot import SwagSearchBot
+    from config import get_discord_bot_token, get_discord_channel_id
+    from models import Listing
 
 # Configure logging
 logging.basicConfig(
