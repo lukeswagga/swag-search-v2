@@ -124,6 +124,9 @@ MERCARI_MAX_RETRIES = 3  # Max retries for 500/429 errors
 MERCARI_RETRY_BACKOFF_BASE = 2  # Exponential backoff base (2^attempt)
 MERCARI_TIMEOUT = 30  # Request timeout in seconds (Playwright needs more time)
 
+# Scraper Settings
+STOP_ON_DUPLICATE = False  # Stop scraping when duplicate listing is found (for testing)
+
 # Browser Settings
 HEADLESS_BROWSER = os.getenv('HEADLESS_BROWSER', 'True').lower() == 'true'  # Default to True for Railway deployment
 

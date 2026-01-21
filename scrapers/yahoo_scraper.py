@@ -30,52 +30,29 @@ except ImportError:
     from scrapers.base import BaseScraper
     from scrapers.rate_limiter import RateLimiter, RateLimiterManager
 
-try:
-    from ..config import (
-        YAHOO_SEARCH_URL,
-        YAHOO_TIMEOUT,
-        YAHOO_CONNECT_TIMEOUT,
-        YAHOO_MAX_RETRIES,
-        YAHOO_RETRY_BACKOFF_BASE,
-        YAHOO_MAX_REQUESTS_PER_MINUTE,
-        YAHOO_MIN_DELAY_BETWEEN_REQUESTS,
-        YAHOO_REQUEST_DELAY_MIN,
-        YAHOO_REQUEST_DELAY_MAX,
-        MAX_CONCURRENT_REQUESTS,
-        MAX_PARALLEL_PAGES_PER_BRAND,
-        BATCH_SIZE,
-        DEFAULT_HEADERS,
-        MIN_PAGES,
-        MAX_PAGES,
-        STOP_ON_DUPLICATE,
-    )
-except ImportError:
-    from config import (
-        YAHOO_SEARCH_URL,
-        YAHOO_TIMEOUT,
-        YAHOO_CONNECT_TIMEOUT,
-        YAHOO_MAX_RETRIES,
-        YAHOO_RETRY_BACKOFF_BASE,
-        YAHOO_MAX_REQUESTS_PER_MINUTE,
-        YAHOO_MIN_DELAY_BETWEEN_REQUESTS,
-        YAHOO_REQUEST_DELAY_MIN,
-        YAHOO_REQUEST_DELAY_MAX,
-        MAX_CONCURRENT_REQUESTS,
-        MAX_PARALLEL_PAGES_PER_BRAND,
-        BATCH_SIZE,
-        DEFAULT_HEADERS,
-        MIN_PAGES,
-        MAX_PAGES,
-        STOP_ON_DUPLICATE,
-    )
+from config import (
+    YAHOO_SEARCH_URL,
+    YAHOO_TIMEOUT,
+    YAHOO_CONNECT_TIMEOUT,
+    YAHOO_MAX_RETRIES,
+    YAHOO_RETRY_BACKOFF_BASE,
+    YAHOO_MAX_REQUESTS_PER_MINUTE,
+    YAHOO_MIN_DELAY_BETWEEN_REQUESTS,
+    YAHOO_REQUEST_DELAY_MIN,
+    YAHOO_REQUEST_DELAY_MAX,
+    MAX_CONCURRENT_REQUESTS,
+    MAX_PARALLEL_PAGES_PER_BRAND,
+    BATCH_SIZE,
+    DEFAULT_HEADERS,
+    MIN_PAGES,
+    MAX_PAGES,
+    STOP_ON_DUPLICATE,
+)
+
+from models import Listing
 
 try:
-    from ..models import Listing
-except ImportError:
-    from models import Listing
-
-try:
-    from ..database import listing_exists as listing_exists_async
+    from database import listing_exists as listing_exists_async
 except ImportError:
     from database import listing_exists as listing_exists_async
 

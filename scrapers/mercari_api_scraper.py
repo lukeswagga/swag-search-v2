@@ -50,36 +50,21 @@ except ImportError:
     from scrapers.base import BaseScraper
     from scrapers.rate_limiter import RateLimiter
 
-try:
-    from ..config import (
-        MERCARI_MAX_REQUESTS_PER_MINUTE,
-        MERCARI_MIN_DELAY_BETWEEN_REQUESTS,
-        MERCARI_MAX_RETRIES,
-        MERCARI_RETRY_BACKOFF_BASE,
-        MERCARI_TIMEOUT,
-        MIN_PAGES,
-        MAX_PAGES,
-        STOP_ON_DUPLICATE,
-    )
-except ImportError:
-    from config import (
-        MERCARI_MAX_REQUESTS_PER_MINUTE,
-        MERCARI_MIN_DELAY_BETWEEN_REQUESTS,
-        MERCARI_MAX_RETRIES,
-        MERCARI_RETRY_BACKOFF_BASE,
-        MERCARI_TIMEOUT,
-        MIN_PAGES,
-        MAX_PAGES,
-        STOP_ON_DUPLICATE,
-    )
+from config import (
+    MERCARI_MAX_REQUESTS_PER_MINUTE,
+    MERCARI_MIN_DELAY_BETWEEN_REQUESTS,
+    MERCARI_MAX_RETRIES,
+    MERCARI_RETRY_BACKOFF_BASE,
+    MERCARI_TIMEOUT,
+    MIN_PAGES,
+    MAX_PAGES,
+    STOP_ON_DUPLICATE,
+)
+
+from models import Listing
 
 try:
-    from ..models import Listing
-except ImportError:
-    from models import Listing
-
-try:
-    from ..database import listing_exists as listing_exists_async
+    from database import listing_exists as listing_exists_async
 except ImportError:
     from database import listing_exists as listing_exists_async
 
