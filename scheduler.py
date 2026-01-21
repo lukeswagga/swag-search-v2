@@ -446,13 +446,9 @@ class ScraperScheduler:
             self._database_initialized = True
             logger.info("✅ Database initialized and ready")
             
-            # Initialize filter matcher
-            try:
-                import database as db_module
-            except ImportError:
-                from v2 import database as db_module
-            self.filter_matcher = FilterMatcher(db_module)
-            logger.info("✅ Filter matcher initialized")
+            # Filter matcher initialization disabled - sending all listings to Discord
+            # self.filter_matcher = FilterMatcher(db_module)
+            logger.info("✅ Database initialized (filter matching disabled - sending all listings)")
         except Exception as e:
             logger.error(f"❌ Failed to initialize database: {e}", exc_info=True)
             logger.warning("⚠️  Continuing without database persistence...")
