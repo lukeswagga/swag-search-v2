@@ -26,12 +26,12 @@ try:
     from database import init_database, create_tables, save_listings_batch, close_database, get_active_filters, record_alert_sent, was_alert_sent, get_listings_since
     from filter_matcher import FilterMatcher
 except ImportError:
-    from scrapers.yahoo_scraper import YahooScraper
-    from scrapers.mercari_api_scraper import MercariAPIScraper
-    from config import SCRAPER_RUN_INTERVAL_SECONDS, get_discord_webhook_url, MAX_ALERTS_PER_CYCLE, get_database_url, ALL_BRANDS, BRANDS_PER_CYCLE, CYCLE_DELAY_SECONDS
-    from discord_notifier import DiscordNotifier
-    from database import init_database, create_tables, save_listings_batch, close_database, get_active_filters, record_alert_sent, was_alert_sent, get_listings_since
-    from filter_matcher import FilterMatcher
+    from v2.scrapers.yahoo_scraper import YahooScraper
+    from v2.scrapers.mercari_api_scraper import MercariAPIScraper
+    from v2.config import SCRAPER_RUN_INTERVAL_SECONDS, get_discord_webhook_url, MAX_ALERTS_PER_CYCLE, get_database_url, ALL_BRANDS, BRANDS_PER_CYCLE, CYCLE_DELAY_SECONDS
+    from v2.discord_notifier import DiscordNotifier
+    from v2.database import init_database, create_tables, save_listings_batch, close_database, get_active_filters, record_alert_sent, was_alert_sent, get_listings_since
+    from v2.filter_matcher import FilterMatcher
 
 # Configure logging
 logging.basicConfig(
@@ -155,7 +155,11 @@ class ScraperScheduler:
             
             # Save all listings to database
             db_stats = None
-            if self._database_initialized and all_listings:
+            if not self._database_initialized:
+                logger.warning(f"⚠️  Database not initialized - skipping save of {len(all_listings)} listings")
+            elif not all_listings:
+                logger.debug(f"ℹ️  No listings to save (empty list)")
+            else:
                 logger.info(f"💾 Saving {len(all_listings)} listings to database...")
                 try:
                     db_stats = await save_listings_batch(all_listings)
@@ -165,6 +169,8 @@ class ScraperScheduler:
                         f"✅ Database save complete: {db_stats.get('saved', 0)} new, "
                         f"{db_stats.get('duplicates', 0)} duplicates"
                     )
+                    if db_stats.get('errors', 0) > 0:
+                        logger.error(f"❌ Database save had {db_stats.get('errors', 0)} errors")
                 except Exception as e:
                     logger.error(f"❌ Error saving listings to database: {e}", exc_info=True)
             
@@ -232,26 +238,10 @@ class ScraperScheduler:
             
             print(f"{'='*60}\n")
             
-            # Send ALL listings to Discord immediately (simple flow)
+            # Filter matching and personalized Discord alerts
             discord_stats = None
-            if self.discord_notifier and all_listings:
-                try:
-                    logger.info(f"📤 Sending {len(all_listings)} listings to Discord...")
-                    discord_stats = await self.discord_notifier.send_listings(all_listings)
-                    logger.info(
-                        f"✅ Discord alerts: {discord_stats['sent']} sent, "
-                        f"{discord_stats['failed']} failed out of {len(all_listings)} total"
-                    )
-                    print(f"\nDiscord Stats:")
-                    print(f"  Sent: {discord_stats['sent']}")
-                    print(f"  Failed: {discord_stats['failed']}")
-                    print(f"{'='*60}\n")
-                except Exception as e:
-                    logger.error(f"❌ Error sending Discord alerts: {e}", exc_info=True)
-            
-            # Filter matching and personalized Discord alerts (optional - disabled for now)
             filter_alerts_stats = None
-            if False and self._database_initialized and self.discord_notifier and all_listings and db_stats:
+            if self._database_initialized and self.discord_notifier and all_listings and db_stats:
                 try:
                     # Get new listings from database (those saved in this cycle)
                     # Query for listings first_seen in the last 2 minutes (safety margin)
@@ -398,8 +388,6 @@ class ScraperScheduler:
                 'filter_alerts': filter_alerts_stats,
                 'database_stats': db_stats,
             }
-            
-            # Return stats for summary
                 
         except Exception as e:
             cycle_end = datetime.now()
@@ -441,14 +429,33 @@ class ScraperScheduler:
         # Initialize database
         try:
             logger.info("🔧 Initializing database...")
-            init_database()  # Uses DATABASE_URL from environment
-            await create_tables()
-            self._database_initialized = True
-            logger.info("✅ Database initialized and ready")
-            
-            # Filter matcher initialization disabled - sending all listings to Discord
-            # self.filter_matcher = FilterMatcher(db_module)
-            logger.info("✅ Database initialized (filter matching disabled - sending all listings)")
+            from config import get_database_url
+            db_url = get_database_url()
+            if not db_url:
+                logger.warning("⚠️  No DATABASE_URL found in environment - database will not be initialized")
+                logger.warning("   Set DATABASE_URL in .env file or environment variables")
+                self._database_initialized = False
+            else:
+                logger.info(f"📋 Found DATABASE_URL: {db_url.split('@')[0]}@...")
+                init_database()  # Uses DATABASE_URL from environment
+                
+                # Verify initialization worked
+                try:
+                    import database as db_module
+                except ImportError:
+                    from v2 import database as db_module
+                
+                if db_module._session_factory is None:
+                    logger.error("❌ Database session factory is None after init_database()")
+                    self._database_initialized = False
+                else:
+                    await create_tables()
+                    self._database_initialized = True
+                    logger.info("✅ Database initialized and ready")
+                    
+                    # Initialize filter matcher
+                    self.filter_matcher = FilterMatcher(db_module)
+                    logger.info("✅ Filter matcher initialized")
         except Exception as e:
             logger.error(f"❌ Failed to initialize database: {e}", exc_info=True)
             logger.warning("⚠️  Continuing without database persistence...")
@@ -472,13 +479,6 @@ class ScraperScheduler:
                 # Split brands into batches
                 total_cycles = (len(all_brands) + brands_per_cycle - 1) // brands_per_cycle
                 
-                # Track totals for this full run through all brands
-                full_run_listings = 0
-                full_run_new = 0
-                full_run_duplicates = 0
-                full_run_discord_sent = 0
-                full_run_discord_failed = 0
-                
                 for cycle_idx in range(total_cycles):
                     if self._should_stop:
                         break
@@ -496,39 +496,29 @@ class ScraperScheduler:
                     # Run scraper cycle with current brands
                     result = await self.run_scraper_cycle()
                     
-                    # Accumulate stats for full run summary
-                    if result.get('success'):
-                        full_run_listings += result.get('listings_found', 0)
-                        db_stats = result.get('database_stats', {})
-                        full_run_new += db_stats.get('saved', 0)
-                        full_run_duplicates += db_stats.get('duplicates', 0)
-                        discord_stats = result.get('discord_alerts', {})
-                        full_run_discord_sent += discord_stats.get('sent', 0)
-                        full_run_discord_failed += discord_stats.get('failed', 0)
+                    # Print summary statistics
+                    success_rate = (self.success_count / self.run_count * 100) if self.run_count > 0 else 0
+                    stats_msg = (
+                        f"📊 Overall stats: {self.run_count} cycles, "
+                        f"{self.success_count} successful, {self.error_count} errors "
+                        f"({success_rate:.1f}% success rate), "
+                        f"{self.total_listings_found} total listings "
+                        f"({self.total_yahoo_listings} Yahoo + {self.total_mercari_listings} Mercari)"
+                    )
+                    if self._database_initialized:
+                        stats_msg += (
+                            f", {self.total_new_listings} new saved, "
+                            f"{self.total_duplicates_skipped} duplicates skipped"
+                        )
+                    logger.info(stats_msg)
                     
                     # Short delay before next cycle (unless it's the last cycle)
                     if not self._should_stop and cycle_idx < total_cycles - 1:
                         logger.info(f"⏳ Waiting {cycle_delay} seconds before next brand batch...")
                         await asyncio.sleep(cycle_delay)
                 
-                # Show full run summary after completing all brands
+                # After completing all brands, start over immediately
                 if not self._should_stop:
-                    print(f"\n{'='*60}")
-                    print("FULL CYCLE SUMMARY (All 31 Brands)")
-                    print(f"{'='*60}")
-                    print(f"Total listings found: {full_run_listings}")
-                    print(f"  Yahoo: {self.total_yahoo_listings}")
-                    print(f"  Mercari: {self.total_mercari_listings}")
-                    if self._database_initialized:
-                        print(f"Database stats:")
-                        print(f"  New listings saved: {full_run_new}")
-                        print(f"  Duplicates skipped: {full_run_duplicates}")
-                    if self.discord_notifier:
-                        print(f"Discord stats:")
-                        print(f"  Alerts sent: {full_run_discord_sent}")
-                        print(f"  Alerts failed: {full_run_discord_failed}")
-                    print(f"{'='*60}\n")
-                    
                     logger.info(f"🔄 Completed all {len(all_brands)} brands. Starting over...")
                     await asyncio.sleep(cycle_delay)  # Brief pause before restarting
                     
