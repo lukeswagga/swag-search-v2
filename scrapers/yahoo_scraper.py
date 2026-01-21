@@ -47,7 +47,6 @@ try:
         DEFAULT_HEADERS,
         MIN_PAGES,
         MAX_PAGES,
-        STOP_ON_DUPLICATE,
     )
 except ImportError:
     from config import (
@@ -66,7 +65,6 @@ except ImportError:
         DEFAULT_HEADERS,
         MIN_PAGES,
         MAX_PAGES,
-        STOP_ON_DUPLICATE,
     )
 
 try:
@@ -74,13 +72,8 @@ try:
 except ImportError:
     from models import Listing
 
-try:
-    from ..database import listing_exists as listing_exists_async
-except ImportError:
-    from database import listing_exists as listing_exists_async
-
-# Alias for cleaner code
-listing_exists = listing_exists_async
+# Database deduplication is handled in save_listings_batch()
+# No need to check during pagination - always scrape first page
 
 
 class YahooScraper(BaseScraper):
@@ -445,7 +438,6 @@ class YahooScraper(BaseScraper):
         
         # Ensure we always scrape at least MIN_PAGES (but never more than max_pages)
         effective_max_pages = max(min(max_pages, MAX_PAGES), MIN_PAGES)
-        found_existing = False
         
         # Process pages SEQUENTIALLY (one at a time) to avoid Yahoo 500 errors
         # Parallel requests cause immediate blocking
@@ -458,26 +450,12 @@ class YahooScraper(BaseScraper):
                     # No results on this page; nothing more to do
                     logger.info(f"ℹ️  No listings on page {page} for {brand}")
                 else:
-                    # Smart pagination: stop when we hit already-seen listings
-                    for listing_data in page_listings:
-                        external_id = listing_data.get("external_id")
-                        if STOP_ON_DUPLICATE and external_id:
-                            # Check if listing exists in database (async)
-                            exists = await listing_exists(external_id, "yahoo")
-                            if exists:
-                                logger.info(f"Stopped at page {page} for {brand} (found existing listings)")
-                                found_existing = True
-                                break
-                        all_listings.append(listing_data)
-                    
-                    if not found_existing:
-                        logger.info(
-                            f"Page {page} for {brand}: {len(page_listings)} listings, all new so far"
-                        )
-                
-                # If we found an existing listing, stop immediately for this brand
-                if found_existing:
-                    break
+                    # Add all listings from this page
+                    # Database will handle deduplication when saving
+                    all_listings.extend(page_listings)
+                    logger.info(
+                        f"Page {page} for {brand}: {len(page_listings)} listings collected"
+                    )
                 
                 # Delay between pages (2-3 seconds like the original scraper)
                 if page < effective_max_pages:
@@ -487,10 +465,6 @@ class YahooScraper(BaseScraper):
                 logger.error(f"❌ Error scraping page {page} for {brand}: {e}")
                 # Continue to next page even if one fails
                 continue
-        
-        # Log if we hit the safety limit without encountering any existing listings
-        if not found_existing and pages_scraped >= effective_max_pages:
-            logger.info(f"Scraped all {effective_max_pages} pages for {brand} (all new)")
         
         logger.info(
             f"📊 {brand}: {len(all_listings)} listings from {pages_scraped} page(s)"

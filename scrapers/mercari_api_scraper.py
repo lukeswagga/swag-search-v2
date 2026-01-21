@@ -59,7 +59,6 @@ try:
         MERCARI_TIMEOUT,
         MIN_PAGES,
         MAX_PAGES,
-        STOP_ON_DUPLICATE,
     )
 except ImportError:
     from config import (
@@ -70,7 +69,6 @@ except ImportError:
         MERCARI_TIMEOUT,
         MIN_PAGES,
         MAX_PAGES,
-        STOP_ON_DUPLICATE,
     )
 
 try:
@@ -78,13 +76,8 @@ try:
 except ImportError:
     from models import Listing
 
-try:
-    from ..database import listing_exists as listing_exists_async
-except ImportError:
-    from database import listing_exists as listing_exists_async
-
-# Alias for cleaner code
-listing_exists = listing_exists_async
+# Database deduplication is handled in save_listings_batch()
+# No need to check during pagination - always scrape first page
 
 
 class MercariAPIScraper(BaseScraper):
@@ -702,7 +695,6 @@ class MercariAPIScraper(BaseScraper):
         page_token = ""
         page_num = 1
         pages_scraped = 0
-        found_existing = False
         
         # Ensure we always scrape at least MIN_PAGES (but never more than max_pages)
         effective_max_pages = max(min(max_pages, MAX_PAGES), MIN_PAGES)
@@ -721,32 +713,16 @@ class MercariAPIScraper(BaseScraper):
                 if not page_listings:
                     logger.info(f"ℹ️  No listings on page {page_num} for {brand}")
                 else:
-                    # Smart pagination: stop when we hit already-seen listings
-                    for listing_data in page_listings:
-                        external_id = listing_data.get("external_id")
-                        if STOP_ON_DUPLICATE and external_id:
-                            # Check if listing exists in database (async)
-                            exists = await listing_exists(external_id, "mercari")
-                            if exists:
-                                logger.info(
-                                    f"Stopped at page {page_num} for {brand} (found existing listings)"
-                                )
-                                found_existing = True
-                                break
-                        all_listings.append(listing_data)
-                    
-                    if not found_existing:
-                        logger.info(
-                            f"Page {page_num} for {brand}: {len(page_listings)} listings, all new so far"
-                        )
+                    # Add all listings from this page
+                    # Database will handle deduplication when saving
+                    all_listings.extend(page_listings)
+                    logger.info(
+                        f"Page {page_num} for {brand}: {len(page_listings)} listings collected"
+                    )
                 
                 # Check if there's a next page
                 if not next_page_token:
                     logger.info(f"   ℹ️  No more pages available (reached end of results)")
-                    break
-                
-                # If we found an existing listing, stop immediately for this brand
-                if found_existing:
                     break
                 
                 page_token = next_page_token
@@ -762,10 +738,6 @@ class MercariAPIScraper(BaseScraper):
                 # Continue to next page even if one fails
                 page_num += 1
                 continue
-        
-        # Log if we hit the safety limit without encountering any existing listings
-        if not found_existing and pages_scraped >= effective_max_pages:
-            logger.info(f"Scraped all {effective_max_pages} pages for {brand} (all new)")
         
         total_expected = pages_scraped * 120
         total_found = len(all_listings)
