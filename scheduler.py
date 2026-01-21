@@ -26,12 +26,12 @@ try:
     from database import init_database, create_tables, save_listings_batch, close_database, get_active_filters, record_alert_sent, was_alert_sent, get_listings_since
     from filter_matcher import FilterMatcher
 except ImportError:
-    from v2.scrapers.yahoo_scraper import YahooScraper
-    from v2.scrapers.mercari_api_scraper import MercariAPIScraper
-    from v2.config import SCRAPER_RUN_INTERVAL_SECONDS, get_discord_webhook_url, MAX_ALERTS_PER_CYCLE, get_database_url, ALL_BRANDS, BRANDS_PER_CYCLE, CYCLE_DELAY_SECONDS
-    from v2.discord_notifier import DiscordNotifier
-    from v2.database import init_database, create_tables, save_listings_batch, close_database, get_active_filters, record_alert_sent, was_alert_sent, get_listings_since
-    from v2.filter_matcher import FilterMatcher
+    from scrapers.yahoo_scraper import YahooScraper
+    from scrapers.mercari_api_scraper import MercariAPIScraper
+    from config import SCRAPER_RUN_INTERVAL_SECONDS, get_discord_webhook_url, MAX_ALERTS_PER_CYCLE, get_database_url, ALL_BRANDS, BRANDS_PER_CYCLE, CYCLE_DELAY_SECONDS
+    from discord_notifier import DiscordNotifier
+    from database import init_database, create_tables, save_listings_batch, close_database, get_active_filters, record_alert_sent, was_alert_sent, get_listings_since
+    from filter_matcher import FilterMatcher
 
 # Configure logging
 logging.basicConfig(

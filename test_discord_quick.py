@@ -15,9 +15,9 @@ try:
     from config import get_discord_webhook_url, MAX_ALERTS_PER_CYCLE
     from discord_notifier import DiscordNotifier
 except ImportError:
-    from v2.scrapers.yahoo_scraper import YahooScraper
-    from v2.config import get_discord_webhook_url, MAX_ALERTS_PER_CYCLE
-    from v2.discord_notifier import DiscordNotifier
+    from scrapers.yahoo_scraper import YahooScraper
+    from config import get_discord_webhook_url, MAX_ALERTS_PER_CYCLE
+    from discord_notifier import DiscordNotifier
 
 async def quick_test():
     """Run one scraper cycle and send top listings to Discord"""

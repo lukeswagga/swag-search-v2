@@ -26,12 +26,12 @@ try:
     from config import get_database_url
     import database as db_module
 except ImportError:
-    from v2.scrapers.yahoo_scraper import YahooScraper
-    from v2.scrapers.mercari_api_scraper import MercariAPIScraper
-    from v2.models import UserFilter, Listing
-    from v2.database import init_database, create_tables, save_listings_batch, get_active_filters, was_alert_sent, save_user_filter, get_listings_since
-    from v2.filter_matcher import FilterMatcher
-    from v2.config import get_database_url
+    from scrapers.yahoo_scraper import YahooScraper
+    from scrapers.mercari_api_scraper import MercariAPIScraper
+    from models import UserFilter, Listing
+    from database import init_database, create_tables, save_listings_batch, get_active_filters, was_alert_sent, save_user_filter, get_listings_since
+    from filter_matcher import FilterMatcher
+    from config import get_database_url
     from v2 import database as db_module
 
 logging.basicConfig(

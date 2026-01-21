@@ -27,10 +27,10 @@ try:
     from scrapers.yahoo_scraper import YahooScraper
     from scrapers.mercari_api_scraper import MercariAPIScraper
 except ImportError:
-    from v2.scheduler import ScraperScheduler
-    from v2.config import SCRAPER_RUN_INTERVAL_SECONDS, MAX_ALERTS_PER_CYCLE
-    from v2.scrapers.yahoo_scraper import YahooScraper
-    from v2.scrapers.mercari_api_scraper import MercariAPIScraper
+    from scheduler import ScraperScheduler
+    from config import SCRAPER_RUN_INTERVAL_SECONDS, MAX_ALERTS_PER_CYCLE
+    from scrapers.yahoo_scraper import YahooScraper
+    from scrapers.mercari_api_scraper import MercariAPIScraper
 
 # Create logs directory if it doesn't exist
 logs_dir = Path(__file__).parent.parent / "logs"

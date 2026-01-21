@@ -17,9 +17,9 @@ try:
     from database import init_database, create_tables, save_user_filter
     from config import get_database_url
 except ImportError:
-    from v2.models import UserFilter
-    from v2.database import init_database, create_tables, save_user_filter
-    from v2.config import get_database_url
+    from models import UserFilter
+    from database import init_database, create_tables, save_user_filter
+    from config import get_database_url
 
 logging.basicConfig(
     level=logging.INFO,

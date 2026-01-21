@@ -16,8 +16,8 @@ try:
     from config import get_database_url
     import database as db_module
 except ImportError:
-    from v2.database import init_database
-    from v2.config import get_database_url
+    from database import init_database
+    from config import get_database_url
     from v2 import database as db_module
 
 logging.basicConfig(

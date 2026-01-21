@@ -15,9 +15,9 @@ try:
     from config import get_discord_webhook_url
     from models import Listing
 except ImportError:
-    from v2.discord_notifier import DiscordNotifier
-    from v2.config import get_discord_webhook_url
-    from v2.models import Listing
+    from discord_notifier import DiscordNotifier
+    from config import get_discord_webhook_url
+    from models import Listing
 
 from datetime import datetime, timezone
 
