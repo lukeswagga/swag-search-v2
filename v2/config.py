@@ -95,6 +95,10 @@ def get_discord_webhook_url() -> Optional[str]:
     """Get Discord webhook URL from environment"""
     return os.getenv('DISCORD_WEBHOOK_URL')
 
+def get_discord_bot_token() -> Optional[str]:
+    """Get Discord bot token from environment"""
+    return os.getenv('DISCORD_BOT_TOKEN')
+
 MAX_ALERTS_PER_CYCLE = 10  # Maximum number of listings to send to Discord per cycle
 
 # Mercari Configuration

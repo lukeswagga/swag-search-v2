@@ -21,15 +21,17 @@ if _parent_dir not in sys.path:
 try:
     from scrapers.yahoo_scraper import YahooScraper
     from scrapers.mercari_api_scraper import MercariAPIScraper
-    from config import SCRAPER_RUN_INTERVAL_SECONDS, get_discord_webhook_url, MAX_ALERTS_PER_CYCLE, get_database_url, ALL_BRANDS, BRANDS_PER_CYCLE, CYCLE_DELAY_SECONDS
+    from config import SCRAPER_RUN_INTERVAL_SECONDS, get_discord_webhook_url, get_discord_bot_token, MAX_ALERTS_PER_CYCLE, get_database_url, ALL_BRANDS, BRANDS_PER_CYCLE, CYCLE_DELAY_SECONDS
     from discord_notifier import DiscordNotifier
+    from discord_bot import SwagSearchBot
     from database import init_database, create_tables, save_listings_batch, close_database, get_active_filters, record_alert_sent, was_alert_sent, get_listings_since
     from filter_matcher import FilterMatcher
 except ImportError:
     from v2.scrapers.yahoo_scraper import YahooScraper
     from v2.scrapers.mercari_api_scraper import MercariAPIScraper
-    from v2.config import SCRAPER_RUN_INTERVAL_SECONDS, get_discord_webhook_url, MAX_ALERTS_PER_CYCLE, get_database_url, ALL_BRANDS, BRANDS_PER_CYCLE, CYCLE_DELAY_SECONDS
+    from v2.config import SCRAPER_RUN_INTERVAL_SECONDS, get_discord_webhook_url, get_discord_bot_token, MAX_ALERTS_PER_CYCLE, get_database_url, ALL_BRANDS, BRANDS_PER_CYCLE, CYCLE_DELAY_SECONDS
     from v2.discord_notifier import DiscordNotifier
+    from v2.discord_bot import SwagSearchBot
     from v2.database import init_database, create_tables, save_listings_batch, close_database, get_active_filters, record_alert_sent, was_alert_sent, get_listings_since
     from v2.filter_matcher import FilterMatcher
 
@@ -76,14 +78,25 @@ class ScraperScheduler:
         self.total_users_alerted = 0
         self._should_stop = False
         
-        # Initialize Discord notifier if webhook URL is available
+        # Initialize Discord bot if token is available
+        bot_token = get_discord_bot_token()
+        self.discord_bot: Optional[SwagSearchBot] = None
+        if bot_token:
+            self.discord_bot = SwagSearchBot(bot_token)
+            logger.info("✅ Discord bot initialized (will start on scheduler start)")
+        else:
+            logger.warning("⚠️  DISCORD_BOT_TOKEN not set - Discord bot disabled")
+        
+        # Fallback to webhook if bot token not available
         webhook_url = get_discord_webhook_url()
         self.discord_notifier: Optional[DiscordNotifier] = None
-        if webhook_url:
+        if webhook_url and not bot_token:
             self.discord_notifier = DiscordNotifier(webhook_url)
-            logger.info("✅ Discord notifier initialized")
-        else:
-            logger.warning("⚠️  DISCORD_WEBHOOK_URL not set - Discord alerts disabled")
+            logger.info("✅ Discord webhook notifier initialized (fallback mode)")
+        elif webhook_url:
+            # Keep webhook as fallback
+            self.discord_notifier = DiscordNotifier(webhook_url)
+            logger.info("ℹ️  Discord webhook available as fallback")
         
         # Database will be initialized in run_continuous() or manually via init_database()
         self._database_initialized = False
@@ -241,7 +254,7 @@ class ScraperScheduler:
             # Filter matching and personalized Discord alerts
             discord_stats = None
             filter_alerts_stats = None
-            if self._database_initialized and self.discord_notifier and all_listings and db_stats:
+            if self._database_initialized and (self.discord_bot or self.discord_notifier) and all_listings and db_stats:
                 try:
                     # Get new listings from database (those saved in this cycle)
                     # Query for listings first_seen in the last 2 minutes (safety margin)
@@ -297,12 +310,34 @@ class ScraperScheduler:
                                         logger.debug(f"⏭️  Skipping duplicate alert: listing {listing_id} -> user {filter_obj.user_id}")
                                         continue
                                     
-                                    # Send personalized Discord alert
-                                    success = await self.discord_notifier.send_listing_with_filter(
-                                        listing, 
-                                        filter_obj.name,
-                                        filter_obj.user_id
-                                    )
+                                    # Send personalized Discord alert via bot or webhook
+                                    success = False
+                                    
+                                    # Try bot first (if available and ready)
+                                    if self.discord_bot and self.discord_bot.is_ready():
+                                        success = await self.discord_bot.send_alert(
+                                            filter_obj.user_id,
+                                            listing,
+                                            filter_obj.name
+                                        )
+                                    elif self.discord_bot:
+                                        # Bot not ready, log warning
+                                        logger.warning(
+                                            f"⚠️  Discord bot not ready, skipping alert: listing {listing_id} -> user {filter_obj.user_id}"
+                                        )
+                                        alerts_failed += 1
+                                    elif self.discord_notifier:
+                                        # Fallback to webhook
+                                        success = await self.discord_notifier.send_listing_with_filter(
+                                            listing, 
+                                            filter_obj.name,
+                                            filter_obj.user_id
+                                        )
+                                    else:
+                                        logger.warning(
+                                            f"⚠️  No Discord notification method available, skipping alert: listing {listing_id} -> user {filter_obj.user_id}"
+                                        )
+                                        alerts_failed += 1
                                     
                                     if success:
                                         alerts_sent += 1
@@ -313,7 +348,8 @@ class ScraperScheduler:
                                             f"✅ Alert sent: listing {listing_id} -> user {filter_obj.user_id} "
                                             f"(filter: {filter_obj.name})"
                                         )
-                                    else:
+                                    elif not (self.discord_bot and not self.discord_bot.is_ready()):
+                                        # Only count as failed if we actually tried (not if bot wasn't ready)
                                         alerts_failed += 1
                                         logger.warning(
                                             f"❌ Failed to send alert: listing {listing_id} -> user {filter_obj.user_id}"
@@ -461,6 +497,16 @@ class ScraperScheduler:
             logger.warning("⚠️  Continuing without database persistence...")
             self._database_initialized = False
         
+        # Start Discord bot if available
+        if self.discord_bot:
+            try:
+                await self.discord_bot.start_bot()
+                logger.info("✅ Discord bot started")
+            except Exception as e:
+                logger.error(f"❌ Failed to start Discord bot: {e}", exc_info=True)
+                logger.warning("⚠️  Continuing without Discord bot (will use webhook fallback if available)")
+                self.discord_bot = None
+        
         print(f"\n{'='*60}")
         print("Scraper Scheduler Started (PRODUCTION MODE)")
         print(f"{'='*60}")
@@ -535,6 +581,14 @@ class ScraperScheduler:
             print(f"Error: {str(e)}")
             print(f"{'='*60}\n")
         finally:
+            # Clean up Discord bot
+            if self.discord_bot:
+                try:
+                    await self.discord_bot.close()
+                    logger.info("✅ Discord bot closed")
+                except Exception as e:
+                    logger.error(f"❌ Error closing Discord bot: {e}")
+            
             # Clean up Discord notifier
             if self.discord_notifier:
                 await self.discord_notifier.close()
