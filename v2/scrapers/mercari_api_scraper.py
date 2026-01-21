@@ -57,6 +57,9 @@ try:
         MERCARI_MAX_RETRIES,
         MERCARI_RETRY_BACKOFF_BASE,
         MERCARI_TIMEOUT,
+        MIN_PAGES,
+        MAX_PAGES,
+        STOP_ON_DUPLICATE,
     )
 except ImportError:
     from config import (
@@ -65,12 +68,20 @@ except ImportError:
         MERCARI_MAX_RETRIES,
         MERCARI_RETRY_BACKOFF_BASE,
         MERCARI_TIMEOUT,
+        MIN_PAGES,
+        MAX_PAGES,
+        STOP_ON_DUPLICATE,
     )
 
 try:
     from ..models import Listing
 except ImportError:
     from models import Listing
+
+try:
+    from ..database import listing_exists
+except ImportError:
+    from database import listing_exists
 
 
 class MercariAPIScraper(BaseScraper):
@@ -670,7 +681,7 @@ class MercariAPIScraper(BaseScraper):
     async def scrape_brand(
         self,
         brand: str,
-        max_pages: int = 5,
+        max_pages: int = MAX_PAGES,
         max_price: Optional[int] = None
     ) -> List[Dict[str, Any]]:
         """
@@ -684,31 +695,59 @@ class MercariAPIScraper(BaseScraper):
         Returns:
             List of listing dictionaries
         """
-        all_listings = []
+        all_listings: List[Dict[str, Any]] = []
         page_token = ""
         page_num = 1
+        pages_scraped = 0
+        found_existing = False
         
-        while page_num <= max_pages:
+        # Ensure we always scrape at least MIN_PAGES (but never more than max_pages)
+        effective_max_pages = max(min(max_pages, MAX_PAGES), MIN_PAGES)
+        
+        while page_num <= effective_max_pages:
             try:
                 logger.info(f"📄 Scraping page {page_num}/{max_pages} for {brand}...")
                 page_listings, next_page_token = await self.scrape_brand_page(
                     brand, page_token, max_price
                 )
                 
+                pages_scraped += 1
                 page_count = len(page_listings)
                 logger.info(f"   ✅ Page {page_num}: {page_count} listings (expected: 120)")
-                all_listings.extend(page_listings)
+                
+                if not page_listings:
+                    logger.info(f"ℹ️  No listings on page {page_num} for {brand}")
+                else:
+                    # Smart pagination: stop when we hit already-seen listings
+                    for listing_data in page_listings:
+                        external_id = listing_data.get("external_id")
+                        if STOP_ON_DUPLICATE and external_id and listing_exists(external_id):
+                            logger.info(
+                                f"Stopped at page {page_num} for {brand} (found existing listings)"
+                            )
+                            found_existing = True
+                            break
+                        all_listings.append(listing_data)
+                    
+                    if not found_existing:
+                        logger.info(
+                            f"Page {page_num} for {brand}: {len(page_listings)} listings, all new so far"
+                        )
                 
                 # Check if there's a next page
                 if not next_page_token:
                     logger.info(f"   ℹ️  No more pages available (reached end of results)")
                     break
                 
+                # If we found an existing listing, stop immediately for this brand
+                if found_existing:
+                    break
+                
                 page_token = next_page_token
                 page_num += 1
                 
                 # Small delay between pages
-                if page_num <= max_pages:
+                if page_num <= effective_max_pages:
                     delay = random.uniform(0.5, 1.0)
                     await asyncio.sleep(delay)
                     
@@ -718,10 +757,17 @@ class MercariAPIScraper(BaseScraper):
                 page_num += 1
                 continue
         
-        total_expected = max_pages * 120
+        # Log if we hit the safety limit without encountering any existing listings
+        if not found_existing and pages_scraped >= effective_max_pages:
+            logger.info(f"Scraped all {effective_max_pages} pages for {brand} (all new)")
+        
+        total_expected = pages_scraped * 120
         total_found = len(all_listings)
         coverage = (total_found / total_expected * 100) if total_expected > 0 else 0
-        logger.info(f"📊 {brand}: {total_found} listings from {page_num - 1} pages (expected: {total_expected}, coverage: {coverage:.1f}%)")
+        logger.info(
+            f"📊 {brand}: {total_found} listings from {pages_scraped} page(s) "
+            f"(expected: {total_expected}, coverage: {coverage:.1f}%)"
+        )
         
         return all_listings
     
@@ -745,17 +791,37 @@ class MercariAPIScraper(BaseScraper):
         
         try:
             # Process brands SEQUENTIALLY to avoid overwhelming API
-            all_listings = []
+            all_listings: List[Dict[str, Any]] = []
+            pages_per_brand = {}
             for brand in brands:
                 try:
-                    brand_listings = await self.scrape_brand(brand, max_pages=5, max_price=max_price)
+                    before_count = len(all_listings)
+                    brand_listings = await self.scrape_brand(
+                        brand, max_pages=MAX_PAGES, max_price=max_price
+                    )
+                    after_count = len(all_listings) + len(brand_listings)
+                    # We know Mercari returns up to 120 items/page
+                    estimated_pages = max(1, min(MAX_PAGES, (len(brand_listings) + 119) // 120))
+                    pages_per_brand[brand] = estimated_pages
                     all_listings.extend(brand_listings)
+                    logger.info(
+                        f"Brand {brand}: {after_count - before_count} new listings collected in this run"
+                    )
                     # Small delay between brands
                     if brand != brands[-1]:  # Don't delay after last brand
                         await asyncio.sleep(1.0)
                 except Exception as e:
                     logger.error(f"❌ Error scraping {brand}: {e}")
                     continue
+
+            # Track average pages per brand for this run
+            if pages_per_brand:
+                total_pages = sum(pages_per_brand.values())
+                avg_pages = total_pages / len(pages_per_brand)
+                logger.info(
+                    f"📊 Mercari average pages per brand this run: {avg_pages:.2f} "
+                    f"(min={min(pages_per_brand.values())}, max={max(pages_per_brand.values())})"
+                )
             
             # Deduplicate by URL
             unique_listings = self.deduplicate(all_listings, key_field='url')

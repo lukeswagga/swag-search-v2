@@ -44,7 +44,10 @@ try:
         MAX_CONCURRENT_REQUESTS,
         MAX_PARALLEL_PAGES_PER_BRAND,
         BATCH_SIZE,
-        DEFAULT_HEADERS
+        DEFAULT_HEADERS,
+        MIN_PAGES,
+        MAX_PAGES,
+        STOP_ON_DUPLICATE,
     )
 except ImportError:
     from config import (
@@ -60,13 +63,21 @@ except ImportError:
         MAX_CONCURRENT_REQUESTS,
         MAX_PARALLEL_PAGES_PER_BRAND,
         BATCH_SIZE,
-        DEFAULT_HEADERS
+        DEFAULT_HEADERS,
+        MIN_PAGES,
+        MAX_PAGES,
+        STOP_ON_DUPLICATE,
     )
 
 try:
     from ..models import Listing
 except ImportError:
     from models import Listing
+
+try:
+    from ..database import listing_exists
+except ImportError:
+    from database import listing_exists
 
 
 class YahooScraper(BaseScraper):
@@ -412,7 +423,7 @@ class YahooScraper(BaseScraper):
     async def scrape_brand(
         self,
         brand: str,
-        max_pages: int = 5,
+        max_pages: int = MAX_PAGES,
         max_price: Optional[int] = None
     ) -> List[Dict[str, Any]]:
         """
@@ -426,23 +437,58 @@ class YahooScraper(BaseScraper):
         Returns:
             List of listing dictionaries
         """
-        all_listings = []
+        all_listings: List[Dict[str, Any]] = []
+        pages_scraped = 0
+        
+        # Ensure we always scrape at least MIN_PAGES (but never more than max_pages)
+        effective_max_pages = max(min(max_pages, MAX_PAGES), MIN_PAGES)
+        found_existing = False
         
         # Process pages SEQUENTIALLY (one at a time) to avoid Yahoo 500 errors
         # Parallel requests cause immediate blocking
-        for page in range(1, max_pages + 1):
+        for page in range(1, effective_max_pages + 1):
             try:
                 page_listings = await self.scrape_brand_page(brand, page, max_price)
-                all_listings.extend(page_listings)
+                pages_scraped += 1
+                
+                if not page_listings:
+                    # No results on this page; nothing more to do
+                    logger.info(f"ℹ️  No listings on page {page} for {brand}")
+                else:
+                    # Smart pagination: stop when we hit already-seen listings
+                    for listing_data in page_listings:
+                        external_id = listing_data.get("external_id")
+                        if STOP_ON_DUPLICATE and external_id and listing_exists(external_id):
+                            logger.info(f"Stopped at page {page} for {brand} (found existing listings)")
+                            found_existing = True
+                            break
+                        all_listings.append(listing_data)
+                    
+                    if not found_existing:
+                        logger.info(
+                            f"Page {page} for {brand}: {len(page_listings)} listings, all new so far"
+                        )
+                
+                # If we found an existing listing, stop immediately for this brand
+                if found_existing:
+                    break
                 
                 # Delay between pages (2-3 seconds like the original scraper)
-                if page < max_pages:
+                if page < effective_max_pages:
                     delay = random.uniform(2.0, 3.0)
                     await asyncio.sleep(delay)
             except Exception as e:
                 logger.error(f"❌ Error scraping page {page} for {brand}: {e}")
                 # Continue to next page even if one fails
                 continue
+        
+        # Log if we hit the safety limit without encountering any existing listings
+        if not found_existing and pages_scraped >= effective_max_pages:
+            logger.info(f"Scraped all {effective_max_pages} pages for {brand} (all new)")
+        
+        logger.info(
+            f"📊 {brand}: {len(all_listings)} listings from {pages_scraped} page(s)"
+        )
         
         return all_listings
     
@@ -484,17 +530,40 @@ class YahooScraper(BaseScraper):
         try:
             # Process brands SEQUENTIALLY to avoid overwhelming Yahoo
             # Parallel requests cause immediate 500 errors
-            all_listings = []
+            all_listings: List[Dict[str, Any]] = []
+            pages_per_brand = {}
+            
             for brand in brands:
                 try:
-                    brand_listings = await self.scrape_brand(brand, max_pages=5, max_price=max_price)
+                    before_count = len(all_listings)
+                    # scrape_brand logs pages internally; we approximate pages_used as
+                    # min(MAX_PAGES, max(1, len(brand_listings) // 50)) for stats only
+                    brand_listings = await self.scrape_brand(
+                        brand, max_pages=MAX_PAGES, max_price=max_price
+                    )
+                    after_count = len(all_listings) + len(brand_listings)
+                    # Rough estimate of pages used based on 50 items/page on Yahoo
+                    estimated_pages = max(1, min(MAX_PAGES, (len(brand_listings) + 49) // 50))
+                    pages_per_brand[brand] = estimated_pages
                     all_listings.extend(brand_listings)
+                    logger.info(
+                        f"Brand {brand}: {after_count - before_count} new listings collected in this run"
+                    )
                     # Small delay between brands
                     if brand != brands[-1]:  # Don't delay after last brand
                         await asyncio.sleep(1.0)
                 except Exception as e:
                     logger.error(f"❌ Error scraping {brand}: {e}")
                     continue
+
+            # Track average pages per brand for this run
+            if pages_per_brand:
+                total_pages = sum(pages_per_brand.values())
+                avg_pages = total_pages / len(pages_per_brand)
+                logger.info(
+                    f"📊 Yahoo average pages per brand this run: {avg_pages:.2f} "
+                    f"(min={min(pages_per_brand.values())}, max={max(pages_per_brand.values())})"
+                )
             
             # Old parallel approach (causes 500 errors):
             # brand_tasks = [

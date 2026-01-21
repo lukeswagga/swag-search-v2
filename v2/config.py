@@ -39,6 +39,12 @@ MAX_CONCURRENT_REQUESTS = 20  # Balanced limit (was 100, then 10)
 MAX_PARALLEL_PAGES_PER_BRAND = 4  # Max pages to fetch in parallel per brand (balanced)
 BATCH_SIZE = 100  # Process listings in batches of 100
 
+# Smart pagination configuration
+# Always scrape at least the first page, but stop early when we hit already-seen listings.
+MIN_PAGES = 1  # Always scrape at least page 1
+MAX_PAGES = 5  # Safety limit on pages per brand
+STOP_ON_DUPLICATE = True  # Enable smart pagination (stop when we hit existing listings)
+
 # Database Configuration
 def get_database_url() -> Optional[str]:
     """Get database connection string from environment"""
