@@ -62,21 +62,30 @@ def init_database(database_url: Optional[str] = None) -> None:
     
     logger.info(f"🔧 Initializing database connection...")
     
-    _engine = create_async_engine(
-        database_url,
-        echo=False,  # Set to True for SQL query logging
-        future=True,
-        # SQLite-specific settings
-        connect_args={"check_same_thread": False} if "sqlite" in database_url else {}
-    )
-    
-    _session_factory = async_sessionmaker(
-        _engine,
-        class_=AsyncSession,
-        expire_on_commit=False,
-    )
-    
-    logger.info("✅ Database connection initialized")
+    try:
+        _engine = create_async_engine(
+            database_url,
+            echo=False,  # Set to True for SQL query logging
+            future=True,
+            # SQLite-specific settings
+            connect_args={"check_same_thread": False} if "sqlite" in database_url else {},
+            # Connection pooling - don't verify connection on startup
+            pool_pre_ping=False,  # Set to False to avoid connection test during init
+        )
+        
+        _session_factory = async_sessionmaker(
+            _engine,
+            class_=AsyncSession,
+            expire_on_commit=False,
+        )
+        
+        logger.info("✅ Database engine created (connection will be tested when needed)")
+    except Exception as e:
+        logger.error(f"❌ Failed to create database engine: {type(e).__name__}: {e}")
+        logger.warning("⚠️  Database will not be available - continuing without persistence")
+        _engine = None
+        _session_factory = None
+        raise
 
 
 async def create_tables() -> None:
@@ -84,9 +93,14 @@ async def create_tables() -> None:
     if _engine is None:
         raise ValueError("Database not initialized. Call init_database() first.")
     
-    async with _engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    logger.info("✅ Database tables created/verified")
+    try:
+        async with _engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        logger.info("✅ Database tables created/verified")
+    except Exception as e:
+        logger.error(f"❌ Failed to create tables: {e}")
+        logger.warning("⚠️  Database connection failed - tables not created")
+        raise
 
 
 async def drop_tables() -> None:
@@ -139,7 +153,8 @@ async def listing_exists(external_id: str, market: str) -> bool:
                 logger.debug(f"listing_exists: {market}:{external_id} already exists in database")
             return exists
     except Exception as e:
-        logger.error(f"❌ Error checking listing existence: {e}", exc_info=True)
+        # Log error but don't crash - return False (assume listing doesn't exist)
+        logger.debug(f"Database error checking listing existence (assuming new): {type(e).__name__}")
         return False
 
 

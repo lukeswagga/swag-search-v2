@@ -87,8 +87,27 @@ CYCLE_DELAY_SECONDS = 10  # Short delay between cycles (10 seconds)
 # Database Configuration
 def get_database_url() -> Optional[str]:
     """Get database connection string from environment"""
-    # Try DATABASE_PUBLIC_URL first (Railway), then DATABASE_URL
-    return os.getenv('DATABASE_PUBLIC_URL') or os.getenv('DATABASE_URL')
+    # Try DATABASE_PUBLIC_URL first (Railway), then DATABASE_URL, then PGxxx variables (Railway)
+    db_url = (
+        os.getenv('DATABASE_PUBLIC_URL') or 
+        os.getenv('DATABASE_URL') or
+        os.getenv('POSTGRES_URL') or
+        os.getenv('POSTGRES_PRIVATE_URL') or
+        os.getenv('PGDATABASE')
+    )
+    
+    # If we have PGxxx variables, construct the URL
+    if not db_url:
+        pg_host = os.getenv('PGHOST')
+        pg_port = os.getenv('PGPORT', '5432')
+        pg_user = os.getenv('PGUSER')
+        pg_password = os.getenv('PGPASSWORD')
+        pg_database = os.getenv('PGDATABASE')
+        
+        if all([pg_host, pg_user, pg_password, pg_database]):
+            db_url = f"postgresql://{pg_user}:{pg_password}@{pg_host}:{pg_port}/{pg_database}"
+    
+    return db_url
 
 # Discord Configuration
 def get_discord_webhook_url() -> Optional[str]:
