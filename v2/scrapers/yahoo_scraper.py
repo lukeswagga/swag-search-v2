@@ -75,9 +75,12 @@ except ImportError:
     from models import Listing
 
 try:
-    from ..database import listing_exists
+    from ..database import listing_exists as listing_exists_async
 except ImportError:
-    from database import listing_exists
+    from database import listing_exists as listing_exists_async
+
+# Alias for cleaner code
+listing_exists = listing_exists_async
 
 
 class YahooScraper(BaseScraper):
@@ -458,10 +461,13 @@ class YahooScraper(BaseScraper):
                     # Smart pagination: stop when we hit already-seen listings
                     for listing_data in page_listings:
                         external_id = listing_data.get("external_id")
-                        if STOP_ON_DUPLICATE and external_id and listing_exists(external_id):
-                            logger.info(f"Stopped at page {page} for {brand} (found existing listings)")
-                            found_existing = True
-                            break
+                        if STOP_ON_DUPLICATE and external_id:
+                            # Check if listing exists in database (async)
+                            exists = await listing_exists(external_id, "yahoo")
+                            if exists:
+                                logger.info(f"Stopped at page {page} for {brand} (found existing listings)")
+                                found_existing = True
+                                break
                         all_listings.append(listing_data)
                     
                     if not found_existing:

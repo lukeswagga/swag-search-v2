@@ -144,6 +144,19 @@ class TestScheduler(ScraperScheduler):
         logger.info(f"   Scrapers: Yahoo + Mercari (both run together)")
         logger.info(f"   Log file: {log_file}")
         
+        # Initialize database (same as parent)
+        try:
+            logger.info("🔧 Initializing database...")
+            from database import init_database, create_tables
+            init_database()
+            await create_tables()
+            self._database_initialized = True
+            logger.info("✅ Database initialized and ready")
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize database: {e}", exc_info=True)
+            logger.warning("⚠️  Continuing without database persistence...")
+            self._database_initialized = False
+        
         print(f"\n{'='*60}")
         print("Test Scheduler Started (TEST MODE - Runs 2 Cycles Then Stops)")
         print(f"{'='*60}")
@@ -154,6 +167,7 @@ class TestScheduler(ScraperScheduler):
         print(f"Total test duration: ~{self.max_cycles * self.run_interval_seconds / 60:.1f} minutes")
         print(f"Brands: {', '.join(self.brands)}")
         print(f"Scrapers: Yahoo + Mercari (both run together)")
+        print(f"Database: {'✅ Initialized' if self._database_initialized else '❌ Not available'}")
         print(f"Log file: {log_file}")
         print(f"{'='*60}\n")
         
@@ -198,6 +212,23 @@ class TestScheduler(ScraperScheduler):
         finally:
             test_end = datetime.now()
             total_duration = (test_end - test_start).total_seconds()
+            
+            # Clean up Discord notifier
+            if self.discord_notifier:
+                try:
+                    await self.discord_notifier.close()
+                except Exception as e:
+                    logger.warning(f"Error closing Discord notifier: {e}")
+            
+            # Clean up database connections (if initialized)
+            if hasattr(self, '_database_initialized') and self._database_initialized:
+                try:
+                    from database import close_database
+                    await close_database()
+                    logger.info("✅ Database connections closed")
+                except Exception as e:
+                    logger.error(f"❌ Error closing database: {e}")
+            
             self.print_test_results(total_duration)
     
     def print_test_results(self, total_duration: float):

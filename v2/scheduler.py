@@ -21,13 +21,15 @@ if _parent_dir not in sys.path:
 try:
     from scrapers.yahoo_scraper import YahooScraper
     from scrapers.mercari_api_scraper import MercariAPIScraper
-    from config import SCRAPER_RUN_INTERVAL_SECONDS, get_discord_webhook_url, MAX_ALERTS_PER_CYCLE
+    from config import SCRAPER_RUN_INTERVAL_SECONDS, get_discord_webhook_url, MAX_ALERTS_PER_CYCLE, get_database_url
     from discord_notifier import DiscordNotifier
+    from database import init_database, create_tables, save_listings_batch, close_database
 except ImportError:
     from v2.scrapers.yahoo_scraper import YahooScraper
     from v2.scrapers.mercari_api_scraper import MercariAPIScraper
-    from v2.config import SCRAPER_RUN_INTERVAL_SECONDS, get_discord_webhook_url, MAX_ALERTS_PER_CYCLE
+    from v2.config import SCRAPER_RUN_INTERVAL_SECONDS, get_discord_webhook_url, MAX_ALERTS_PER_CYCLE, get_database_url
     from v2.discord_notifier import DiscordNotifier
+    from v2.database import init_database, create_tables, save_listings_batch, close_database
 
 # Configure logging
 logging.basicConfig(
@@ -66,6 +68,8 @@ class ScraperScheduler:
         self.total_listings_found = 0
         self.total_yahoo_listings = 0
         self.total_mercari_listings = 0
+        self.total_new_listings = 0
+        self.total_duplicates_skipped = 0
         self._should_stop = False
         
         # Initialize Discord notifier if webhook URL is available
@@ -76,6 +80,9 @@ class ScraperScheduler:
             logger.info("✅ Discord notifier initialized")
         else:
             logger.warning("⚠️  DISCORD_WEBHOOK_URL not set - Discord alerts disabled")
+        
+        # Database will be initialized in run_continuous() or manually via init_database()
+        self._database_initialized = False
     
     async def run_scraper_cycle(self) -> dict:
         """
@@ -139,6 +146,21 @@ class ScraperScheduler:
             # Combine listings from both sources
             all_listings = list(yahoo_listings) + list(mercari_listings)
             
+            # Save all listings to database
+            db_stats = None
+            if self._database_initialized and all_listings:
+                logger.info(f"💾 Saving {len(all_listings)} listings to database...")
+                try:
+                    db_stats = await save_listings_batch(all_listings)
+                    self.total_new_listings += db_stats.get("saved", 0)
+                    self.total_duplicates_skipped += db_stats.get("duplicates", 0)
+                    logger.info(
+                        f"✅ Database save complete: {db_stats.get('saved', 0)} new, "
+                        f"{db_stats.get('duplicates', 0)} duplicates"
+                    )
+                except Exception as e:
+                    logger.error(f"❌ Error saving listings to database: {e}", exc_info=True)
+            
             cycle_end = datetime.now()
             total_duration = (cycle_end - cycle_start).total_seconds()
             
@@ -163,6 +185,12 @@ class ScraperScheduler:
             print(f"  Yahoo: {yahoo_duration:.2f}s, {len(yahoo_listings)} listings")
             print(f"  Mercari: {mercari_duration:.2f}s, {len(mercari_listings)} listings")
             print(f"Total listings: {len(all_listings)}")
+            if db_stats:
+                print(f"Database stats:")
+                print(f"  New listings saved: {db_stats.get('saved', 0)}")
+                print(f"  Duplicates skipped: {db_stats.get('duplicates', 0)}")
+                if db_stats.get('errors', 0) > 0:
+                    print(f"  Errors: {db_stats.get('errors', 0)}")
             if len(all_listings) == 0:
                 print("⚠️  WARNING: 0 listings found - possible rate limiting!")
             print(f"Brands searched: {len(self.brands)}")
@@ -226,6 +254,7 @@ class ScraperScheduler:
                 'listings': all_listings,
                 'timestamp': cycle_start.isoformat(),
                 'discord_alerts': discord_stats,
+                'database_stats': db_stats,
             }
                 
         except Exception as e:
@@ -258,6 +287,18 @@ class ScraperScheduler:
         logger.info(f"   Interval: {self.run_interval_seconds} seconds ({self.run_interval_seconds / 60:.1f} minutes)")
         logger.info(f"   Brands: {', '.join(self.brands)}")
         
+        # Initialize database
+        try:
+            logger.info("🔧 Initializing database...")
+            init_database()  # Uses DATABASE_URL from environment
+            await create_tables()
+            self._database_initialized = True
+            logger.info("✅ Database initialized and ready")
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize database: {e}", exc_info=True)
+            logger.warning("⚠️  Continuing without database persistence...")
+            self._database_initialized = False
+        
         print(f"\n{'='*60}")
         print("Scraper Scheduler Started (PRODUCTION MODE - Runs Continuously)")
         print(f"{'='*60}")
@@ -266,6 +307,7 @@ class ScraperScheduler:
         print(f"{'='*60}")
         print(f"Run interval: {self.run_interval_seconds} seconds ({self.run_interval_seconds / 60:.1f} minutes)")
         print(f"Brands: {', '.join(self.brands)}")
+        print(f"Database: {'✅ Initialized' if self._database_initialized else '❌ Not available'}")
         print(f"{'='*60}\n")
         
         try:
@@ -275,13 +317,19 @@ class ScraperScheduler:
                 
                 # Print summary statistics
                 success_rate = (self.success_count / self.run_count * 100) if self.run_count > 0 else 0
-                logger.info(
+                stats_msg = (
                     f"📊 Overall stats: {self.run_count} runs, "
                     f"{self.success_count} successful, {self.error_count} errors "
                     f"({success_rate:.1f}% success rate), "
                     f"{self.total_listings_found} total listings "
                     f"({self.total_yahoo_listings} Yahoo + {self.total_mercari_listings} Mercari)"
                 )
+                if self._database_initialized:
+                    stats_msg += (
+                        f", {self.total_new_listings} new saved, "
+                        f"{self.total_duplicates_skipped} duplicates skipped"
+                    )
+                logger.info(stats_msg)
                 
                 # Wait before next cycle (unless we should stop)
                 if not self._should_stop:
@@ -304,6 +352,15 @@ class ScraperScheduler:
             # Clean up Discord notifier
             if self.discord_notifier:
                 await self.discord_notifier.close()
+            
+            # Close database connections
+            if self._database_initialized:
+                try:
+                    await close_database()
+                    logger.info("✅ Database connections closed")
+                except Exception as e:
+                    logger.error(f"❌ Error closing database: {e}")
+            
             self.print_final_stats()
     
     def stop(self):
@@ -325,6 +382,10 @@ class ScraperScheduler:
         print(f"Total listings found: {self.total_listings_found}")
         print(f"  Yahoo: {self.total_yahoo_listings}")
         print(f"  Mercari: {self.total_mercari_listings}")
+        if self._database_initialized:
+            print(f"Database stats:")
+            print(f"  New listings saved: {self.total_new_listings}")
+            print(f"  Duplicates skipped: {self.total_duplicates_skipped}")
         print(f"{'='*60}\n")
         
         logger.info(
@@ -333,6 +394,11 @@ class ScraperScheduler:
             f"{self.total_listings_found} total listings "
             f"({self.total_yahoo_listings} Yahoo + {self.total_mercari_listings} Mercari)"
         )
+        if self._database_initialized:
+            logger.info(
+                f"💾 Database: {self.total_new_listings} new saved, "
+                f"{self.total_duplicates_skipped} duplicates skipped"
+            )
 
 
 async def main():
