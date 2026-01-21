@@ -359,13 +359,13 @@ async def save_user_filter(user_filter: UserFilter) -> int:
 async def get_active_filters() -> List[UserFilter]:
     """
     Get all active user filters from the database.
-    
+
     Returns:
         List of UserFilter objects where active=True
     """
     if _session_factory is None:
         raise ValueError("Database not initialized. Call init_database() first.")
-    
+
     try:
         async with _session_factory() as session:
             result = await session.execute(
@@ -376,6 +376,180 @@ async def get_active_filters() -> List[UserFilter]:
             return list(filters)
     except Exception as e:
         logger.error(f"❌ Error getting active filters: {e}", exc_info=True)
+        return []
+
+
+async def get_user_filters(discord_id: str) -> List[UserFilter]:
+    """
+    Get all filters for a specific user (by Discord ID).
+
+    Args:
+        discord_id: Discord user ID (string)
+
+    Returns:
+        List of UserFilter objects for this user
+    """
+    if _session_factory is None:
+        raise ValueError("Database not initialized. Call init_database() first.")
+
+    try:
+        async with _session_factory() as session:
+            result = await session.execute(
+                select(UserFilter).where(UserFilter.user_id == discord_id)
+                .order_by(UserFilter.created_at.desc())
+            )
+            filters = result.scalars().all()
+            logger.debug(f"Found {len(filters)} filters for user {discord_id}")
+            return list(filters)
+    except Exception as e:
+        logger.error(f"❌ Error getting user filters: {e}", exc_info=True)
+        return []
+
+
+async def get_filter_by_id(filter_id: int) -> Optional[UserFilter]:
+    """
+    Get a specific filter by ID.
+
+    Args:
+        filter_id: Filter ID
+
+    Returns:
+        UserFilter object or None if not found
+    """
+    if _session_factory is None:
+        raise ValueError("Database not initialized. Call init_database() first.")
+
+    try:
+        async with _session_factory() as session:
+            result = await session.execute(
+                select(UserFilter).where(UserFilter.id == filter_id)
+            )
+            filter_obj = result.scalar_one_or_none()
+            return filter_obj
+    except Exception as e:
+        logger.error(f"❌ Error getting filter by ID: {e}", exc_info=True)
+        return None
+
+
+async def update_user_filter(filter_id: int, updates: dict) -> Optional[UserFilter]:
+    """
+    Update a user filter.
+
+    Args:
+        filter_id: Filter ID to update
+        updates: Dictionary of fields to update
+
+    Returns:
+        Updated UserFilter object or None if not found
+    """
+    if _session_factory is None:
+        raise ValueError("Database not initialized. Call init_database() first.")
+
+    try:
+        async with _session_factory() as session:
+            # Get existing filter
+            result = await session.execute(
+                select(UserFilter).where(UserFilter.id == filter_id)
+            )
+            filter_obj = result.scalar_one_or_none()
+
+            if not filter_obj:
+                logger.warning(f"⚠️  Filter {filter_id} not found")
+                return None
+
+            # Update fields
+            for key, value in updates.items():
+                if hasattr(filter_obj, key):
+                    setattr(filter_obj, key, value)
+
+            # Update timestamp
+            filter_obj.updated_at = datetime.now(timezone.utc)
+
+            await session.commit()
+            await session.refresh(filter_obj)
+
+            logger.info(f"✅ Updated filter {filter_id}")
+            return filter_obj
+    except Exception as e:
+        logger.error(f"❌ Error updating filter: {e}", exc_info=True)
+        if _session_factory:
+            async with _session_factory() as session:
+                await session.rollback()
+        return None
+
+
+async def delete_user_filter(filter_id: int) -> bool:
+    """
+    Delete a user filter.
+
+    Args:
+        filter_id: Filter ID to delete
+
+    Returns:
+        True if deleted, False if not found or error
+    """
+    if _session_factory is None:
+        raise ValueError("Database not initialized. Call init_database() first.")
+
+    try:
+        async with _session_factory() as session:
+            # Get existing filter
+            result = await session.execute(
+                select(UserFilter).where(UserFilter.id == filter_id)
+            )
+            filter_obj = result.scalar_one_or_none()
+
+            if not filter_obj:
+                logger.warning(f"⚠️  Filter {filter_id} not found")
+                return False
+
+            # Delete filter
+            await session.delete(filter_obj)
+            await session.commit()
+
+            logger.info(f"✅ Deleted filter {filter_id}")
+            return True
+    except Exception as e:
+        logger.error(f"❌ Error deleting filter: {e}", exc_info=True)
+        if _session_factory:
+            async with _session_factory() as session:
+                await session.rollback()
+        return False
+
+
+async def get_listings_by_filter(filter_id: Optional[int] = None, discord_id: Optional[str] = None, limit: int = 50) -> List[Listing]:
+    """
+    Get listings that match a specific filter or all filters for a user.
+
+    Args:
+        filter_id: Specific filter ID (optional)
+        discord_id: Discord user ID - get listings matching ANY of user's filters (optional)
+        limit: Maximum number of listings to return
+
+    Returns:
+        List of Listing objects sorted by first_seen DESC
+
+    Note:
+        This is a simplified implementation that returns recent listings.
+        For production, you'd want to implement proper filter matching logic.
+    """
+    if _session_factory is None:
+        raise ValueError("Database not initialized. Call init_database() first.")
+
+    try:
+        async with _session_factory() as session:
+            # For now, return recent listings
+            # TODO: Implement proper filter matching using filter_matcher.py
+            result = await session.execute(
+                select(Listing)
+                .order_by(Listing.first_seen.desc())
+                .limit(limit)
+            )
+            listings = result.scalars().all()
+            logger.debug(f"Found {len(listings)} listings")
+            return list(listings)
+    except Exception as e:
+        logger.error(f"❌ Error getting listings by filter: {e}", exc_info=True)
         return []
 
 
