@@ -4,7 +4,7 @@ import { query } from '@/lib/db';
 
 // Extend Profile type for Discord
 interface DiscordProfile extends Profile {
-  id: string;
+  id?: string;
   username?: string;
   avatar?: string;
   discriminator?: string;
@@ -24,13 +24,15 @@ export const authOptions: NextAuthOptions = {
     }),
   ],
   callbacks: {
-    async signIn({ user, account, profile }: { user: any; account: any; profile?: DiscordProfile }) {
+    async signIn({ user, account, profile }) {
       if (account?.provider === 'discord' && user) {
         try {
-          const discordId = user.id || profile?.id || account.providerAccountId;
-          const discordUsername = user.name || profile?.username;
-          const discordAvatar = user.image || profile?.avatar || profile?.image_url;
-          const email = user.email || profile?.email;
+          // Type assertion for Discord profile
+          const discordProfile = profile as DiscordProfile | undefined;
+          const discordId = user.id || discordProfile?.id || account.providerAccountId;
+          const discordUsername = user.name || discordProfile?.username;
+          const discordAvatar = user.image || discordProfile?.avatar || discordProfile?.image_url;
+          const email = user.email || discordProfile?.email;
 
           if (!discordId) {
             console.error('No Discord ID found');
