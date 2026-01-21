@@ -1,6 +1,15 @@
-import NextAuth, { NextAuthOptions } from 'next-auth';
+import NextAuth, { NextAuthOptions, Profile } from 'next-auth';
 import DiscordProvider from 'next-auth/providers/discord';
 import { query } from '@/lib/db';
+
+// Extend Profile type for Discord
+interface DiscordProfile extends Profile {
+  id: string;
+  username?: string;
+  avatar?: string;
+  discriminator?: string;
+  image_url?: string;
+}
 
 export const authOptions: NextAuthOptions = {
   providers: [
@@ -15,7 +24,7 @@ export const authOptions: NextAuthOptions = {
     }),
   ],
   callbacks: {
-    async signIn({ user, account, profile }) {
+    async signIn({ user, account, profile }: { user: any; account: any; profile?: DiscordProfile }) {
       if (account?.provider === 'discord' && user) {
         try {
           const discordId = user.id || profile?.id || account.providerAccountId;
