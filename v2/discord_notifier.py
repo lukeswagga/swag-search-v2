@@ -219,7 +219,7 @@ class DiscordNotifier:
         else:
             return dt.strftime("%B %d, %Y at %I:%M %p")
     
-    def _create_embed(self, listing: Listing) -> dict:
+    def _create_embed(self, listing: Listing, filter_name: Optional[str] = None, user_id: Optional[str] = None) -> dict:
         """
         Create Discord embed for a listing matching production format
         
@@ -272,6 +272,11 @@ class DiscordNotifier:
         # Format timestamp for footer
         timestamp_str = self._format_timestamp(datetime.utcnow())
         
+        # Build footer text
+        footer_text = f"Auction ID: {listing.external_id} • {timestamp_str}"
+        if filter_name and user_id:
+            footer_text += f"\nMatched filter: {filter_name} | For: {user_id}"
+        
         # Build embed fields in order
         fields = [
             {
@@ -312,7 +317,7 @@ class DiscordNotifier:
             "color": color,
             "fields": fields,
             "footer": {
-                "text": f"Auction ID: {listing.external_id} • {timestamp_str}"
+                "text": footer_text
             },
             "timestamp": datetime.utcnow().isoformat()
         }
@@ -336,13 +341,15 @@ class DiscordNotifier:
         
         self._last_send_time = asyncio.get_event_loop().time()
     
-    async def send_listing(self, listing: Listing) -> bool:
+    async def send_listing(self, listing: Listing, filter_name: Optional[str] = None, user_id: Optional[str] = None) -> bool:
         """
         Send a single listing to Discord webhook
         
         Args:
             listing: Listing object to send
-            
+            filter_name: Optional filter name that matched
+            user_id: Optional user ID this alert is for
+        
         Returns:
             True if successful, False otherwise
         """
@@ -351,7 +358,7 @@ class DiscordNotifier:
             await self._enforce_rate_limit()
             
             # Create embed
-            embed = self._create_embed(listing)
+            embed = self._create_embed(listing, filter_name, user_id)
             
             # Prepare payload
             payload = {
@@ -391,6 +398,20 @@ class DiscordNotifier:
             logger.error(f"❌ Error sending Discord alert: {e}", exc_info=True)
             self._error_count += 1
             return False
+    
+    async def send_listing_with_filter(self, listing: Listing, filter_name: str, user_id: str) -> bool:
+        """
+        Send a listing with filter information (convenience method)
+        
+        Args:
+            listing: Listing object to send
+            filter_name: Filter name that matched
+            user_id: User ID this alert is for
+        
+        Returns:
+            True if successful, False otherwise
+        """
+        return await self.send_listing(listing, filter_name, user_id)
     
     async def send_listings(self, listings: List[Listing]) -> dict:
         """

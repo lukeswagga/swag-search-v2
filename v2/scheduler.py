@@ -23,13 +23,15 @@ try:
     from scrapers.mercari_api_scraper import MercariAPIScraper
     from config import SCRAPER_RUN_INTERVAL_SECONDS, get_discord_webhook_url, MAX_ALERTS_PER_CYCLE, get_database_url
     from discord_notifier import DiscordNotifier
-    from database import init_database, create_tables, save_listings_batch, close_database
+    from database import init_database, create_tables, save_listings_batch, close_database, get_active_filters, record_alert_sent, was_alert_sent, get_listings_since
+    from filter_matcher import FilterMatcher
 except ImportError:
     from v2.scrapers.yahoo_scraper import YahooScraper
     from v2.scrapers.mercari_api_scraper import MercariAPIScraper
     from v2.config import SCRAPER_RUN_INTERVAL_SECONDS, get_discord_webhook_url, MAX_ALERTS_PER_CYCLE, get_database_url
     from v2.discord_notifier import DiscordNotifier
-    from v2.database import init_database, create_tables, save_listings_batch, close_database
+    from v2.database import init_database, create_tables, save_listings_batch, close_database, get_active_filters, record_alert_sent, was_alert_sent, get_listings_since
+    from v2.filter_matcher import FilterMatcher
 
 # Configure logging
 logging.basicConfig(
@@ -70,6 +72,8 @@ class ScraperScheduler:
         self.total_mercari_listings = 0
         self.total_new_listings = 0
         self.total_duplicates_skipped = 0
+        self.total_alerts_sent = 0
+        self.total_users_alerted = 0
         self._should_stop = False
         
         # Initialize Discord notifier if webhook URL is available
@@ -83,6 +87,9 @@ class ScraperScheduler:
         
         # Database will be initialized in run_continuous() or manually via init_database()
         self._database_initialized = False
+        
+        # Filter matcher (will be initialized after database is ready)
+        self.filter_matcher: Optional[FilterMatcher] = None
     
     async def run_scraper_cycle(self) -> dict:
         """
@@ -225,20 +232,138 @@ class ScraperScheduler:
             
             print(f"{'='*60}\n")
             
-            # Send top listings to Discord if notifier is available
+            # Filter matching and personalized Discord alerts
             discord_stats = None
-            if self.discord_notifier and all_listings:
-                # Select top listings (already sorted newest-first by scrapers)
-                # Keep the order from scrapers - newest listings first
-                top_listings = all_listings[:MAX_ALERTS_PER_CYCLE]
-                
-                if top_listings:
-                    logger.info(f"📤 Sending top {len(top_listings)} listings to Discord...")
-                    discord_stats = await self.discord_notifier.send_listings(top_listings)
-                    logger.info(
-                        f"✅ Discord alerts sent: {discord_stats['sent']} successful, "
-                        f"{discord_stats['failed']} failed"
-                    )
+            filter_alerts_stats = None
+            if self._database_initialized and self.discord_notifier and all_listings and db_stats:
+                try:
+                    # Get new listings from database (those saved in this cycle)
+                    # Query for listings first_seen in the last 2 minutes (safety margin)
+                    from datetime import timedelta
+                    
+                    cycle_start_time = cycle_start - timedelta(minutes=2)
+                    new_listings_from_db = await get_listings_since(cycle_start_time)
+                    
+                    # Filter to only those that are truly new (first_seen == last_seen within 1 second)
+                    new_listings = []
+                    for listing in new_listings_from_db:
+                        if listing.first_seen and listing.last_seen:
+                            time_diff = abs((listing.last_seen - listing.first_seen).total_seconds())
+                            if time_diff < 1.0:  # Within 1 second = new listing
+                                new_listings.append(listing)
+                    
+                    if new_listings:
+                        logger.info(f"🔍 Found {len(new_listings)} new listings, matching against user filters...")
+                        
+                        # Initialize filter matcher if not already done
+                        if self.filter_matcher is None:
+                            # Import database module for filter matcher
+                            try:
+                                import database as db_module
+                            except ImportError:
+                                from v2 import database as db_module
+                            self.filter_matcher = FilterMatcher(db_module)
+                        
+                        # Load active filters
+                        active_filters = await get_active_filters()
+                        
+                        if active_filters:
+                            logger.info(f"📋 Loaded {len(active_filters)} active user filters")
+                            
+                            # Match listings against filters
+                            matches = await self.filter_matcher.get_matches_for_batch(new_listings, active_filters)
+                            
+                            # Send personalized alerts
+                            alerts_sent = 0
+                            alerts_failed = 0
+                            users_alerted = set()
+                            
+                            for listing_id, matched_filters in matches.items():
+                                # Find the listing object
+                                listing = next((l for l in new_listings if l.id == listing_id), None)
+                                if not listing:
+                                    continue
+                                
+                                # Send alert for each matching filter
+                                for filter_obj in matched_filters:
+                                    # Check if alert was already sent to this user for this listing
+                                    if await was_alert_sent(listing_id, filter_obj.user_id):
+                                        logger.debug(f"⏭️  Skipping duplicate alert: listing {listing_id} -> user {filter_obj.user_id}")
+                                        continue
+                                    
+                                    # Send personalized Discord alert
+                                    success = await self.discord_notifier.send_listing_with_filter(
+                                        listing, 
+                                        filter_obj.name,
+                                        filter_obj.user_id
+                                    )
+                                    
+                                    if success:
+                                        alerts_sent += 1
+                                        users_alerted.add(filter_obj.user_id)
+                                        # Record that alert was sent
+                                        await record_alert_sent(listing_id, filter_obj.user_id, filter_obj.id)
+                                        logger.info(
+                                            f"✅ Alert sent: listing {listing_id} -> user {filter_obj.user_id} "
+                                            f"(filter: {filter_obj.name})"
+                                        )
+                                    else:
+                                        alerts_failed += 1
+                                        logger.warning(
+                                            f"❌ Failed to send alert: listing {listing_id} -> user {filter_obj.user_id}"
+                                        )
+                            
+                            filter_alerts_stats = {
+                                'total_matches': len(matches),
+                                'alerts_sent': alerts_sent,
+                                'alerts_failed': alerts_failed,
+                                'users_alerted': len(users_alerted)
+                            }
+                            
+                            self.total_alerts_sent += alerts_sent
+                            self.total_users_alerted = len(set(list(users_alerted) + [u for u in users_alerted]))
+                            
+                            # Show detailed filter matching results
+                            print(f"\n{'='*60}")
+                            print("FILTER MATCHING RESULTS")
+                            print(f"{'='*60}")
+                            print(f"Active filters checked: {len(active_filters)}")
+                            print(f"New listings checked: {len(new_listings)}")
+                            print(f"Listings matched: {len(matches)}")
+                            print(f"Alerts sent: {alerts_sent}")
+                            print(f"Alerts failed: {alerts_failed}")
+                            print(f"Users alerted: {len(users_alerted)}")
+                            
+                            if matches:
+                                # Group matches by filter for display
+                                from collections import defaultdict
+                                matches_by_filter = defaultdict(list)
+                                for listing_id, matched_filters in matches.items():
+                                    listing = next((l for l in new_listings if l.id == listing_id), None)
+                                    if listing:
+                                        for filter_obj in matched_filters:
+                                            matches_by_filter[filter_obj.name].append(listing)
+                                
+                                print(f"\nMatches by filter:")
+                                for filter_name, listings in sorted(matches_by_filter.items()):
+                                    print(f"  📋 {filter_name}: {len(listings)} listing(s)")
+                                    # Show sample matches
+                                    for listing in listings[:2]:
+                                        print(f"     - [{listing.market}] {listing.title[:50]}... (¥{listing.price_jpy:,})")
+                            
+                            print(f"{'='*60}\n")
+                            
+                            logger.info(
+                                f"📊 Filter matching complete: {len(matches)} listings matched, "
+                                f"{alerts_sent} alerts sent to {len(users_alerted)} users"
+                            )
+                        else:
+                            logger.info("ℹ️  No active user filters found, skipping filter matching")
+                    else:
+                        logger.info("ℹ️  No new listings found (all are duplicates), skipping filter matching")
+                        
+                except Exception as e:
+                    logger.error(f"❌ Error in filter matching: {e}", exc_info=True)
             
             self.success_count += 1
             
@@ -254,6 +379,7 @@ class ScraperScheduler:
                 'listings': all_listings,
                 'timestamp': cycle_start.isoformat(),
                 'discord_alerts': discord_stats,
+                'filter_alerts': filter_alerts_stats,
                 'database_stats': db_stats,
             }
                 
@@ -294,6 +420,14 @@ class ScraperScheduler:
             await create_tables()
             self._database_initialized = True
             logger.info("✅ Database initialized and ready")
+            
+            # Initialize filter matcher
+            try:
+                import database as db_module
+            except ImportError:
+                from v2 import database as db_module
+            self.filter_matcher = FilterMatcher(db_module)
+            logger.info("✅ Filter matcher initialized")
         except Exception as e:
             logger.error(f"❌ Failed to initialize database: {e}", exc_info=True)
             logger.warning("⚠️  Continuing without database persistence...")
@@ -403,8 +537,8 @@ class ScraperScheduler:
 
 async def main():
     """Main entry point for scheduler"""
-    # Example brands - replace with your actual brands
-    brands = ["Supreme", "Bape", "Nike"]
+    # Brands matching the test filters
+    brands = ["Rick Owens", "Raf Simons", "Comme des Garcons"]
     
     scheduler = ScraperScheduler(
         brands=brands,

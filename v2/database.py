@@ -16,9 +16,9 @@ logger = logging.getLogger(__name__)
 
 # Import models
 try:
-    from .models import Base, Listing
+    from .models import Base, Listing, UserFilter, AlertSent
 except ImportError:
-    from models import Base, Listing
+    from models import Base, Listing, UserFilter, AlertSent
 
 # Global engine and session factory (will be initialized by init_database)
 _engine: Optional[AsyncEngine] = None
@@ -325,6 +325,135 @@ async def close_database() -> None:
         logger.info("✅ Database connections closed")
     else:
         logger.debug("Database already closed or never initialized")
+
+
+async def save_user_filter(user_filter: UserFilter) -> int:
+    """
+    Save a user filter to the database.
+    
+    Args:
+        user_filter: UserFilter object to save
+    
+    Returns:
+        Filter ID (primary key)
+    """
+    if _session_factory is None:
+        raise ValueError("Database not initialized. Call init_database() first.")
+    
+    try:
+        async with _session_factory() as session:
+            session.add(user_filter)
+            await session.commit()
+            await session.refresh(user_filter)  # Refresh to get the ID
+            filter_id = user_filter.id
+            logger.info(f"✅ Saved user filter: {user_filter.name} (ID: {filter_id}, user: {user_filter.user_id})")
+            return filter_id
+    except Exception as e:
+        logger.error(f"❌ Error saving user filter: {e}", exc_info=True)
+        if _session_factory:
+            async with _session_factory() as session:
+                await session.rollback()
+        raise
+
+
+async def get_active_filters() -> List[UserFilter]:
+    """
+    Get all active user filters from the database.
+    
+    Returns:
+        List of UserFilter objects where active=True
+    """
+    if _session_factory is None:
+        raise ValueError("Database not initialized. Call init_database() first.")
+    
+    try:
+        async with _session_factory() as session:
+            result = await session.execute(
+                select(UserFilter).where(UserFilter.active == True)
+            )
+            filters = result.scalars().all()
+            logger.debug(f"Found {len(filters)} active user filters")
+            return list(filters)
+    except Exception as e:
+        logger.error(f"❌ Error getting active filters: {e}", exc_info=True)
+        return []
+
+
+async def record_alert_sent(listing_id: int, user_id: str, filter_id: int) -> None:
+    """
+    Record that an alert was sent to a user for a listing.
+    This prevents duplicate alerts.
+    
+    Args:
+        listing_id: Listing ID
+        user_id: User ID (Discord user ID string)
+        filter_id: Filter ID that matched
+    """
+    if _session_factory is None:
+        raise ValueError("Database not initialized. Call init_database() first.")
+    
+    try:
+        async with _session_factory() as session:
+            # Check if alert already exists (shouldn't happen due to unique constraint, but check anyway)
+            result = await session.execute(
+                select(AlertSent).where(
+                    and_(
+                        AlertSent.listing_id == listing_id,
+                        AlertSent.user_id == user_id
+                    )
+                )
+            )
+            existing = result.scalar_one_or_none()
+            
+            if existing:
+                logger.debug(f"Alert already recorded for listing {listing_id} and user {user_id}")
+                return
+            
+            # Create new alert record
+            alert = AlertSent(
+                listing_id=listing_id,
+                user_id=user_id,
+                filter_id=filter_id
+            )
+            session.add(alert)
+            await session.commit()
+            logger.debug(f"✅ Recorded alert sent: listing {listing_id} -> user {user_id} (filter {filter_id})")
+    except Exception as e:
+        logger.error(f"❌ Error recording alert sent: {e}", exc_info=True)
+        if _session_factory:
+            async with _session_factory() as session:
+                await session.rollback()
+
+
+async def was_alert_sent(listing_id: int, user_id: str) -> bool:
+    """
+    Check if an alert was already sent to a user for a listing.
+    
+    Args:
+        listing_id: Listing ID
+        user_id: User ID (Discord user ID string)
+    
+    Returns:
+        True if alert was already sent, False otherwise
+    """
+    if _session_factory is None:
+        return False
+    
+    try:
+        async with _session_factory() as session:
+            result = await session.execute(
+                select(AlertSent).where(
+                    and_(
+                        AlertSent.listing_id == listing_id,
+                        AlertSent.user_id == user_id
+                    )
+                )
+            )
+            exists = result.scalar_one_or_none() is not None
+            return exists
+    except Exception as e:
+        logger.error(f"❌ Error checking if alert was sent: {e}", exc_info=True)
+        return False
 
 
 # Backward compatibility: synchronous wrapper for listing_exists

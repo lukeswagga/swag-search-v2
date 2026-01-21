@@ -20,7 +20,7 @@ class UserFilter(Base):
     __tablename__ = "user_filters"
     
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    user_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    user_id: Mapped[str] = mapped_column(String(100), nullable=False, index=True)  # Discord user ID (string)
     name: Mapped[str] = mapped_column(String(100), nullable=False)  # Filter name (e.g., "My Budget Finds")
     markets: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)  # Comma-separated: "yahoo,mercari"
     brands: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # JSON array of brands
@@ -89,7 +89,7 @@ class AlertSent(Base):
     
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     listing_id: Mapped[int] = mapped_column(Integer, ForeignKey("listings.id"), nullable=False, index=True)
-    user_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    user_id: Mapped[str] = mapped_column(String(100), nullable=False, index=True)  # Discord user ID (string)
     filter_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("user_filters.id"), nullable=True, index=True)
     sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.utcnow(), nullable=False, index=True)
     

@@ -285,8 +285,8 @@ class TestScheduler(ScraperScheduler):
 
 async def main():
     """Main entry point for test"""
-    # Archive brands for testing
-    brands = ["Rick Owens", "Comme Des Garcons", "Raf Simons"]
+    # Brands matching the test filters
+    brands = ["Rick Owens", "Raf Simons", "Comme des Garcons"]
     
     # Run for 2 cycles (10 minutes total with 5-minute intervals)
     scheduler = TestScheduler(
