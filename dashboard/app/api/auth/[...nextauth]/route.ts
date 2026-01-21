@@ -1,6 +1,5 @@
 import NextAuth, { NextAuthOptions, Profile } from 'next-auth';
 import DiscordProvider from 'next-auth/providers/discord';
-import { query } from '@/lib/db';
 
 // Extend Profile type for Discord
 interface DiscordProfile extends Profile {
@@ -26,87 +25,32 @@ export const authOptions: NextAuthOptions = {
   callbacks: {
     async signIn({ user, account, profile }) {
       if (account?.provider === 'discord' && user) {
-        try {
-          // Type assertion for Discord profile
-          const discordProfile = profile as DiscordProfile | undefined;
-          const discordId = user.id || discordProfile?.id || account.providerAccountId;
-          const discordUsername = user.name || discordProfile?.username;
-          const discordAvatar = user.image || discordProfile?.avatar || discordProfile?.image_url;
-          const email = user.email || discordProfile?.email;
+        // Type assertion for Discord profile
+        const discordProfile = profile as DiscordProfile | undefined;
+        const discordId = user.id || discordProfile?.id || account.providerAccountId;
 
-          if (!discordId) {
-            console.error('No Discord ID found');
-            return false;
-          }
-
-          // Check if user exists
-          const existingUser = await query(
-            'SELECT * FROM users WHERE discord_id = $1',
-            [discordId]
-          );
-
-          if (existingUser.rows.length === 0) {
-            // Insert new user
-            await query(
-              `INSERT INTO users (discord_id, discord_username, discord_avatar, email, created_at, updated_at)
-               VALUES ($1, $2, $3, $4, NOW(), NOW())`,
-              [discordId, discordUsername, discordAvatar, email]
-            );
-            console.log(`New user created: ${discordId}`);
-          } else {
-            // Update existing user info
-            await query(
-              `UPDATE users 
-               SET discord_username = $2, discord_avatar = $3, email = $4, updated_at = NOW()
-               WHERE discord_id = $1`,
-              [discordId, discordUsername, discordAvatar, email]
-            );
-            console.log(`User updated: ${discordId}`);
-          }
-
-          return true;
-        } catch (error) {
-          console.error('Error in signIn callback:', error);
+        if (!discordId) {
+          console.error('No Discord ID found');
           return false;
         }
+
+        // TODO: Call Railway API to save user if needed
+        // User data will be saved via API calls from other parts of the dashboard
+        // Example: await fetch('https://web-production-0bd84.up.railway.app/api/users', { ... })
+
+        return true;
       }
       return true;
     },
     async session({ session, token }) {
       if (session.user) {
-        try {
-          // Get user from database
-          const result = await query(
-            'SELECT discord_id, discord_username, discord_avatar FROM users WHERE discord_id = $1',
-            [token.sub]
-          );
-
-          if (result.rows.length > 0) {
-            const dbUser = result.rows[0];
-            session.user = {
-              ...session.user,
-              id: token.sub as string,
-              discord_id: dbUser.discord_id,
-              name: dbUser.discord_username || session.user.name,
-              image: dbUser.discord_avatar || session.user.image,
-            };
-          } else {
-            // Fallback to token data if not in DB
-            session.user = {
-              ...session.user,
-              id: token.sub as string,
-              discord_id: token.sub as string,
-            };
-          }
-        } catch (error) {
-          console.error('Error in session callback:', error);
-          // Fallback to token data on error
-          session.user = {
-            ...session.user,
-            id: token.sub as string,
-            discord_id: token.sub as string,
-          };
-        }
+        // Use token data directly - no database connection needed
+        // User data will be fetched from Railway API when needed
+        session.user = {
+          ...session.user,
+          id: token.sub as string,
+          discord_id: token.sub as string,
+        };
       }
       return session;
     },
