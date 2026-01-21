@@ -33,3 +33,6 @@ logs/
 *.db
 *.sqlite
 *.sqlite3
+dashboard/node_modules/
+dashboard/.next/
+dashboard/.env*.local
