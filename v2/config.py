@@ -99,6 +99,17 @@ def get_discord_bot_token() -> Optional[str]:
     """Get Discord bot token from environment"""
     return os.getenv('DISCORD_BOT_TOKEN')
 
+def get_discord_channel_id() -> Optional[str]:
+    """
+    Get Discord channel ID from environment (for #v2 channel)
+    
+    To get channel ID:
+    1. Discord → Enable Developer Mode (User Settings → Advanced → Developer Mode)
+    2. Right-click #v2 channel → Copy Channel ID
+    3. Set DISCORD_CHANNEL_ID environment variable
+    """
+    return os.getenv('DISCORD_CHANNEL_ID')
+
 MAX_ALERTS_PER_CYCLE = 10  # Maximum number of listings to send to Discord per cycle
 
 # Mercari Configuration

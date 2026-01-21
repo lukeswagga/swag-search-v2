@@ -1,9 +1,10 @@
 """
-Discord bot for sending personalized DMs to users based on their filters
+Discord bot for sending alerts to both channels and user DMs
 """
 import asyncio
 import logging
-from typing import Optional, Tuple
+import time
+from typing import Optional, Tuple, List, Dict
 import discord
 from datetime import datetime
 from urllib.parse import quote
@@ -18,11 +19,12 @@ except ImportError:
 
 class SwagSearchBot:
     """
-    Discord bot that sends personalized DMs to users
+    Discord bot that sends alerts to channels and personalized DMs
     
     Features:
-    - Sends DMs based on user filters
-    - Rate limiting (1 msg/sec)
+    - Sends all listings to #v2 channel (public feed)
+    - Sends personalized DMs to users based on filters
+    - Rate limiting (10 msg/sec = 0.1s delay, safe for bot's 3000/min limit)
     - Handles DMs disabled, user blocked, etc.
     - Graceful error handling
     """
@@ -39,6 +41,9 @@ class SwagSearchBot:
     COLOR_YELLOW = 16776960  # 0xFFFF00
     COLOR_RED = 15548997     # 0xED4245
     
+    # Rate limiting: Bot can handle 3000/min, we'll do 10/sec (600/min) to be safe
+    MIN_DELAY = 0.1  # 0.1 seconds = 10 messages per second
+    
     def __init__(self, token: str):
         """
         Initialize Discord bot
@@ -53,8 +58,8 @@ class SwagSearchBot:
         self._ready = False
         self._start_task: Optional[asyncio.Task] = None
         self._last_send_time = 0.0
-        self._min_delay = 1.0  # 1 second between messages
-        self._send_count = 0
+        self._channel_send_count = 0
+        self._dm_send_count = 0
         self._error_count = 0
         self._dm_disabled_count = 0
         self._blocked_count = 0
@@ -179,13 +184,13 @@ class SwagSearchBot:
         else:
             return dt.strftime("%B %d, %Y at %I:%M %p")
     
-    def _create_embed(self, listing: Listing, filter_name: str) -> discord.Embed:
+    def _create_embed(self, listing: Listing, filter_name: Optional[str] = None) -> discord.Embed:
         """
         Create Discord embed for a listing (same format as webhook embeds)
         
         Args:
             listing: Listing object
-            filter_name: Filter name that matched
+            filter_name: Optional filter name that matched (for DMs only)
             
         Returns:
             Discord Embed object
@@ -232,21 +237,93 @@ class SwagSearchBot:
         
         # Add footer
         timestamp_str = self._format_timestamp(datetime.utcnow())
-        footer_text = f"Auction ID: {listing.external_id} • {timestamp_str}\nMatched filter: {filter_name}"
+        footer_text = f"Auction ID: {listing.external_id} • {timestamp_str}"
+        if filter_name:
+            # Add filter name for DM embeds
+            footer_text += f"\nMatched filter: {filter_name}"
         embed.set_footer(text=footer_text)
         
         return embed
     
     async def _enforce_rate_limit(self):
-        """Enforce 1 message per second rate limit"""
-        current_time = asyncio.get_event_loop().time()
+        """Enforce rate limit: 0.1s delay = 10 messages per second (safe for bot's 3000/min limit)"""
+        current_time = time.time()
         time_since_last_send = current_time - self._last_send_time
         
-        if time_since_last_send < self._min_delay:
-            wait_time = self._min_delay - time_since_last_send
+        if time_since_last_send < self.MIN_DELAY:
+            wait_time = self.MIN_DELAY - time_since_last_send
             await asyncio.sleep(wait_time)
         
-        self._last_send_time = asyncio.get_event_loop().time()
+        self._last_send_time = time.time()
+    
+    async def send_to_channel(self, channel_id: str, embed: discord.Embed) -> bool:
+        """
+        Send an embed to a Discord channel
+        
+        Args:
+            channel_id: Discord channel ID (as string, e.g., "123456789012345678")
+            embed: Discord Embed object
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        if not self.is_ready():
+            logger.error("❌ Bot is not ready - cannot send to channel")
+            return False
+        
+        try:
+            # Enforce rate limit
+            await self._enforce_rate_limit()
+            
+            # Get channel by ID
+            try:
+                channel = self.bot.get_channel(int(channel_id))
+                if channel is None:
+                    channel = await self.bot.fetch_channel(int(channel_id))
+                
+                # Check if we can see the channel
+                if channel is None:
+                    logger.error(f"❌ Channel not found: {channel_id}")
+                    logger.error("   Make sure the bot is in the server with this channel")
+                    return False
+            except discord.NotFound:
+                logger.error(f"❌ Channel not found: {channel_id}")
+                logger.error("   Make sure the channel ID is correct and bot is in the server")
+                return False
+            except discord.HTTPException as e:
+                logger.error(f"❌ Error fetching channel {channel_id}: {e}")
+                return False
+            except discord.Forbidden:
+                logger.error(f"❌ Bot doesn't have permission to access channel {channel_id}")
+                logger.error("   Fix: Right-click channel → Edit Channel → Permissions → Add bot")
+                logger.error("   Required permissions: View Channel, Send Messages, Embed Links")
+                return False
+            
+            # Send embed to channel
+            try:
+                await channel.send(embed=embed)
+                self._channel_send_count += 1
+                logger.info(f"✅ Message sent to channel {channel_id} (#{channel.name if hasattr(channel, 'name') else 'unknown'})")
+                return True
+            except discord.Forbidden:
+                logger.error(f"❌ Bot doesn't have permission to send messages to channel {channel_id}")
+                logger.error(f"   Channel: #{channel.name if hasattr(channel, 'name') else 'unknown'}")
+                logger.error("   Fix permissions:")
+                logger.error("   1. Right-click channel → Edit Channel → Permissions")
+                logger.error("   2. Add/select your bot")
+                logger.error("   3. Enable: View Channel, Send Messages, Embed Links")
+                logger.error("   4. Make sure bot role is above any roles denying permissions")
+                self._error_count += 1
+                return False
+            except discord.HTTPException as e:
+                logger.error(f"❌ Error sending message to channel {channel_id}: {e}")
+                self._error_count += 1
+                return False
+                
+        except Exception as e:
+            logger.error(f"❌ Unexpected error sending to channel {channel_id}: {e}", exc_info=True)
+            self._error_count += 1
+            return False
     
     async def send_dm(self, user_id: str, embed: discord.Embed) -> bool:
         """
@@ -280,7 +357,7 @@ class SwagSearchBot:
             # Try to send DM
             try:
                 await user.send(embed=embed)
-                self._send_count += 1
+                self._dm_send_count += 1
                 logger.info(f"✅ DM sent to user {user_id} ({user.name})")
                 return True
             except discord.Forbidden:
@@ -309,9 +386,114 @@ class SwagSearchBot:
             self._error_count += 1
             return False
     
-    async def send_alert(self, user_id: str, listing: Listing, filter_name: str) -> bool:
+    async def send_alert(
+        self,
+        listing: Listing,
+        channel_id: Optional[str] = None,
+        user_ids: Optional[List[str]] = None,
+        filter_names: Optional[Dict[str, str]] = None
+    ) -> dict:
         """
-        Send a personalized alert DM to a user
+        Send an alert for a listing
+        
+        Args:
+            listing: Listing object
+            channel_id: Optional channel ID to send to (public feed)
+            user_ids: Optional list of user IDs to send DMs to
+            filter_names: Optional dict mapping user_id -> filter_name for personalized DMs
+            
+        Returns:
+            Dictionary with send results
+        """
+        results = {
+            'channel_sent': False,
+            'dms_sent': 0,
+            'dms_failed': 0
+        }
+        
+        # Send to channel if specified (public feed)
+        if channel_id:
+            embed = self._create_embed(listing)  # No filter name for channel
+            results['channel_sent'] = await self.send_to_channel(channel_id, embed)
+        
+        # Send DMs to matched users
+        if user_ids:
+            if filter_names is None:
+                filter_names = {}
+            
+            for user_id in user_ids:
+                filter_name = filter_names.get(user_id, "Unknown Filter")
+                embed = self._create_embed(listing, filter_name)  # Include filter name for DM
+                
+                if await self.send_dm(user_id, embed):
+                    results['dms_sent'] += 1
+                else:
+                    results['dms_failed'] += 1
+        
+        return results
+    
+    async def send_batch(self, alerts: List[dict]) -> dict:
+        """
+        Process multiple alerts efficiently with rate limiting
+        
+        Args:
+            alerts: List of alert dictionaries, each containing:
+                - listing: Listing object
+                - channel_id: Optional channel ID
+                - user_ids: Optional list of user IDs
+                - filter_names: Optional dict mapping user_id -> filter_name
+        
+        Returns:
+            Dictionary with batch processing results
+        """
+        results = {
+            'total_alerts': len(alerts),
+            'channel_sent': 0,
+            'channel_failed': 0,
+            'dms_sent': 0,
+            'dms_failed': 0
+        }
+        
+        logger.info(f"📤 Processing batch of {len(alerts)} alerts...")
+        
+        for alert in alerts:
+            listing = alert.get('listing')
+            if not listing:
+                logger.warning("⚠️  Alert missing 'listing' field, skipping")
+                continue
+            
+            channel_id = alert.get('channel_id')
+            user_ids = alert.get('user_ids', [])
+            filter_names = alert.get('filter_names', {})
+            
+            # Send alert
+            alert_result = await self.send_alert(
+                listing=listing,
+                channel_id=channel_id,
+                user_ids=user_ids if user_ids else None,
+                filter_names=filter_names if filter_names else None
+            )
+            
+            # Update results
+            if alert_result['channel_sent']:
+                results['channel_sent'] += 1
+            elif channel_id:
+                results['channel_failed'] += 1
+            
+            results['dms_sent'] += alert_result['dms_sent']
+            results['dms_failed'] += alert_result['dms_failed']
+        
+        logger.info(
+            f"📊 Batch complete: {results['channel_sent']} channel messages, "
+            f"{results['dms_sent']} DMs sent, {results['dms_failed']} DMs failed"
+        )
+        
+        return results
+    
+    # Legacy method for backward compatibility
+    async def send_alert_dm(self, user_id: str, listing: Listing, filter_name: str) -> bool:
+        """
+        Send a personalized alert DM to a user (legacy method for backward compatibility)
         
         Args:
             user_id: Discord user ID (as string)
@@ -332,7 +514,9 @@ class SwagSearchBot:
             Dictionary with stats
         """
         return {
-            'total_sent': self._send_count,
+            'channel_sent': self._channel_send_count,
+            'dms_sent': self._dm_send_count,
+            'total_sent': self._channel_send_count + self._dm_send_count,
             'total_errors': self._error_count,
             'dm_disabled': self._dm_disabled_count,
             'blocked': self._blocked_count,

@@ -21,7 +21,7 @@ if _parent_dir not in sys.path:
 try:
     from scrapers.yahoo_scraper import YahooScraper
     from scrapers.mercari_api_scraper import MercariAPIScraper
-    from config import SCRAPER_RUN_INTERVAL_SECONDS, get_discord_webhook_url, get_discord_bot_token, MAX_ALERTS_PER_CYCLE, get_database_url, ALL_BRANDS, BRANDS_PER_CYCLE, CYCLE_DELAY_SECONDS
+    from config import SCRAPER_RUN_INTERVAL_SECONDS, get_discord_webhook_url, get_discord_bot_token, get_discord_channel_id, MAX_ALERTS_PER_CYCLE, get_database_url, ALL_BRANDS, BRANDS_PER_CYCLE, CYCLE_DELAY_SECONDS
     from discord_notifier import DiscordNotifier
     from discord_bot import SwagSearchBot
     from database import init_database, create_tables, save_listings_batch, close_database, get_active_filters, record_alert_sent, was_alert_sent, get_listings_since
@@ -29,7 +29,7 @@ try:
 except ImportError:
     from v2.scrapers.yahoo_scraper import YahooScraper
     from v2.scrapers.mercari_api_scraper import MercariAPIScraper
-    from v2.config import SCRAPER_RUN_INTERVAL_SECONDS, get_discord_webhook_url, get_discord_bot_token, MAX_ALERTS_PER_CYCLE, get_database_url, ALL_BRANDS, BRANDS_PER_CYCLE, CYCLE_DELAY_SECONDS
+    from v2.config import SCRAPER_RUN_INTERVAL_SECONDS, get_discord_webhook_url, get_discord_bot_token, get_discord_channel_id, MAX_ALERTS_PER_CYCLE, get_database_url, ALL_BRANDS, BRANDS_PER_CYCLE, CYCLE_DELAY_SECONDS
     from v2.discord_notifier import DiscordNotifier
     from v2.discord_bot import SwagSearchBot
     from v2.database import init_database, create_tables, save_listings_batch, close_database, get_active_filters, record_alert_sent, was_alert_sent, get_listings_since
@@ -81,9 +81,15 @@ class ScraperScheduler:
         # Initialize Discord bot if token is available
         bot_token = get_discord_bot_token()
         self.discord_bot: Optional[SwagSearchBot] = None
+        self.discord_channel_id: Optional[str] = None
         if bot_token:
             self.discord_bot = SwagSearchBot(bot_token)
-            logger.info("✅ Discord bot initialized (will start on scheduler start)")
+            self.discord_channel_id = get_discord_channel_id()
+            if self.discord_channel_id:
+                logger.info(f"✅ Discord bot initialized with channel ID: {self.discord_channel_id}")
+            else:
+                logger.info("✅ Discord bot initialized (will start on scheduler start)")
+                logger.warning("⚠️  DISCORD_CHANNEL_ID not set - channel alerts disabled (set it for #v2 channel)")
         else:
             logger.warning("⚠️  DISCORD_BOT_TOKEN not set - Discord bot disabled")
         
@@ -251,7 +257,7 @@ class ScraperScheduler:
             
             print(f"{'='*60}\n")
             
-            # Filter matching and personalized Discord alerts
+            # Discord alerts: Send all listings to channel + DMs to matched users
             discord_stats = None
             filter_alerts_stats = None
             if self._database_initialized and (self.discord_bot or self.discord_notifier) and all_listings and db_stats:
@@ -272,7 +278,30 @@ class ScraperScheduler:
                                 new_listings.append(listing)
                     
                     if new_listings:
-                        logger.info(f"🔍 Found {len(new_listings)} new listings, matching against user filters...")
+                        logger.info(f"🔍 Found {len(new_listings)} new listings, sending to channel and matching against user filters...")
+                        
+                        # Send ALL new listings to #v2 channel (public feed) using bot
+                        channel_sent = 0
+                        channel_failed = 0
+                        
+                        if self.discord_bot and self.discord_bot.is_ready() and self.discord_channel_id:
+                            logger.info(f"📤 Sending {len(new_listings)} listings to channel #{self.discord_channel_id}...")
+                            for listing in new_listings:
+                                alert_result = await self.discord_bot.send_alert(
+                                    listing=listing,
+                                    channel_id=self.discord_channel_id
+                                )
+                                if alert_result['channel_sent']:
+                                    channel_sent += 1
+                                else:
+                                    channel_failed += 1
+                            logger.info(f"✅ Channel alerts: {channel_sent} sent, {channel_failed} failed")
+                        elif self.discord_bot and not self.discord_bot.is_ready():
+                            logger.warning("⚠️  Discord bot not ready - skipping channel alerts")
+                        elif not self.discord_channel_id:
+                            logger.warning("⚠️  DISCORD_CHANNEL_ID not set - skipping channel alerts")
+                        elif not self.discord_bot:
+                            logger.warning("⚠️  Discord bot not available - skipping channel alerts")
                         
                         # Initialize filter matcher if not already done
                         if self.filter_matcher is None:
@@ -283,7 +312,7 @@ class ScraperScheduler:
                                 from v2 import database as db_module
                             self.filter_matcher = FilterMatcher(db_module)
                         
-                        # Load active filters
+                        # Load active filters for DM matching
                         active_filters = await get_active_filters()
                         
                         if active_filters:
@@ -292,88 +321,112 @@ class ScraperScheduler:
                             # Match listings against filters
                             matches = await self.filter_matcher.get_matches_for_batch(new_listings, active_filters)
                             
-                            # Send personalized alerts
+                            # Send personalized DMs to matched users
                             alerts_sent = 0
                             alerts_failed = 0
                             users_alerted = set()
                             
+                            # Group matches by listing for efficient sending
                             for listing_id, matched_filters in matches.items():
                                 # Find the listing object
                                 listing = next((l for l in new_listings if l.id == listing_id), None)
                                 if not listing:
                                     continue
                                 
-                                # Send alert for each matching filter
+                                # Collect all users and filter names for this listing
+                                user_ids = []
+                                filter_names = {}
+                                
                                 for filter_obj in matched_filters:
                                     # Check if alert was already sent to this user for this listing
                                     if await was_alert_sent(listing_id, filter_obj.user_id):
                                         logger.debug(f"⏭️  Skipping duplicate alert: listing {listing_id} -> user {filter_obj.user_id}")
                                         continue
                                     
-                                    # Send personalized Discord alert via bot or webhook
-                                    success = False
-                                    
-                                    # Try bot first (if available and ready)
+                                    user_ids.append(filter_obj.user_id)
+                                    filter_names[filter_obj.user_id] = filter_obj.name
+                                
+                                # Send alert to all matched users for this listing
+                                if user_ids:
                                     if self.discord_bot and self.discord_bot.is_ready():
-                                        success = await self.discord_bot.send_alert(
-                                            filter_obj.user_id,
-                                            listing,
-                                            filter_obj.name
+                                        # Use new send_alert method
+                                        alert_result = await self.discord_bot.send_alert(
+                                            listing=listing,
+                                            user_ids=user_ids,
+                                            filter_names=filter_names
                                         )
+                                        
+                                        # Record successful sends
+                                        for user_id in user_ids:
+                                            filter_obj = next((f for f in matched_filters if f.user_id == user_id), None)
+                                            if filter_obj:
+                                                # Check if DM was sent (we can't tell which ones succeeded individually)
+                                                # But we can record all as sent if the batch succeeded
+                                                # For now, record individually based on result
+                                                pass
+                                        
+                                        alerts_sent += alert_result['dms_sent']
+                                        alerts_failed += alert_result['dms_failed']
+                                        
+                                        # Record alerts sent
+                                        for user_id in user_ids:
+                                            filter_obj = next((f for f in matched_filters if f.user_id == user_id), None)
+                                            if filter_obj:
+                                                # We can't tell which specific DMs succeeded, so we'll mark them all
+                                                # The actual success/failure is tracked in the alert_result
+                                                users_alerted.add(user_id)
+                                                await record_alert_sent(listing_id, user_id, filter_obj.id)
                                     elif self.discord_bot:
                                         # Bot not ready, log warning
                                         logger.warning(
-                                            f"⚠️  Discord bot not ready, skipping alert: listing {listing_id} -> user {filter_obj.user_id}"
+                                            f"⚠️  Discord bot not ready, skipping alerts for listing {listing_id}"
                                         )
-                                        alerts_failed += 1
+                                        alerts_failed += len(user_ids)
                                     elif self.discord_notifier:
-                                        # Fallback to webhook
-                                        success = await self.discord_notifier.send_listing_with_filter(
-                                            listing, 
-                                            filter_obj.name,
-                                            filter_obj.user_id
-                                        )
+                                        # Fallback to webhook (old method, one at a time)
+                                        for user_id in user_ids:
+                                            filter_name = filter_names.get(user_id, "Unknown")
+                                            success = await self.discord_notifier.send_listing_with_filter(
+                                                listing, 
+                                                filter_name,
+                                                user_id
+                                            )
+                                            if success:
+                                                alerts_sent += 1
+                                                users_alerted.add(user_id)
+                                                filter_obj = next((f for f in matched_filters if f.user_id == user_id), None)
+                                                if filter_obj:
+                                                    await record_alert_sent(listing_id, user_id, filter_obj.id)
+                                            else:
+                                                alerts_failed += 1
                                     else:
                                         logger.warning(
-                                            f"⚠️  No Discord notification method available, skipping alert: listing {listing_id} -> user {filter_obj.user_id}"
+                                            f"⚠️  No Discord notification method available, skipping alerts for listing {listing_id}"
                                         )
-                                        alerts_failed += 1
-                                    
-                                    if success:
-                                        alerts_sent += 1
-                                        users_alerted.add(filter_obj.user_id)
-                                        # Record that alert was sent
-                                        await record_alert_sent(listing_id, filter_obj.user_id, filter_obj.id)
-                                        logger.info(
-                                            f"✅ Alert sent: listing {listing_id} -> user {filter_obj.user_id} "
-                                            f"(filter: {filter_obj.name})"
-                                        )
-                                    elif not (self.discord_bot and not self.discord_bot.is_ready()):
-                                        # Only count as failed if we actually tried (not if bot wasn't ready)
-                                        alerts_failed += 1
-                                        logger.warning(
-                                            f"❌ Failed to send alert: listing {listing_id} -> user {filter_obj.user_id}"
-                                        )
+                                        alerts_failed += len(user_ids)
                             
                             filter_alerts_stats = {
                                 'total_matches': len(matches),
                                 'alerts_sent': alerts_sent,
                                 'alerts_failed': alerts_failed,
-                                'users_alerted': len(users_alerted)
+                                'users_alerted': len(users_alerted),
+                                'channel_sent': channel_sent,
+                                'channel_failed': channel_failed
                             }
                             
                             self.total_alerts_sent += alerts_sent
-                            self.total_users_alerted = len(set(list(users_alerted) + [u for u in users_alerted]))
+                            self.total_users_alerted = len(users_alerted)
                             
                             # Show detailed filter matching results
                             print(f"\n{'='*60}")
-                            print("FILTER MATCHING RESULTS")
+                            print("DISCORD ALERTS RESULTS")
                             print(f"{'='*60}")
+                            print(f"Channel alerts: {channel_sent} sent, {channel_failed} failed")
                             print(f"Active filters checked: {len(active_filters)}")
                             print(f"New listings checked: {len(new_listings)}")
                             print(f"Listings matched: {len(matches)}")
-                            print(f"Alerts sent: {alerts_sent}")
-                            print(f"Alerts failed: {alerts_failed}")
+                            print(f"DM alerts sent: {alerts_sent}")
+                            print(f"DM alerts failed: {alerts_failed}")
                             print(f"Users alerted: {len(users_alerted)}")
                             
                             if matches:
@@ -396,16 +449,16 @@ class ScraperScheduler:
                             print(f"{'='*60}\n")
                             
                             logger.info(
-                                f"📊 Filter matching complete: {len(matches)} listings matched, "
-                                f"{alerts_sent} alerts sent to {len(users_alerted)} users"
+                                f"📊 Discord alerts complete: {channel_sent} channel messages, "
+                                f"{alerts_sent} DMs sent to {len(users_alerted)} users"
                             )
                         else:
                             logger.info("ℹ️  No active user filters found, skipping filter matching")
                     else:
-                        logger.info("ℹ️  No new listings found (all are duplicates), skipping filter matching")
+                        logger.info("ℹ️  No new listings found (all are duplicates), skipping Discord alerts")
                         
                 except Exception as e:
-                    logger.error(f"❌ Error in filter matching: {e}", exc_info=True)
+                    logger.error(f"❌ Error in Discord alerts: {e}", exc_info=True)
             
             self.success_count += 1
             

@@ -36,11 +36,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ⚠️ UPDATE THIS WITH YOUR DISCORD USER ID
-# To get your Discord ID:
+# ⚠️ UPDATE THIS WITH YOUR DISCORD USER ID (NOT YOUR USERNAME!)
+# Your Discord User ID is a numerical string, NOT your username like "lukeswagga"
+# To get your Discord User ID:
 # 1. Discord settings → Advanced → Enable Developer Mode
-# 2. Right-click your name → Copy User ID
-YOUR_DISCORD_USER_ID = "YOUR_USER_ID_HERE"  # Example: "184675305369792512"
+# 2. Right-click your name (or your profile picture) → Copy User ID
+# 3. Paste the numerical ID here (e.g., "184675305369792512")
+YOUR_DISCORD_USER_ID = "1361239061117010090"  # Your Discord User ID
 
 
 async def create_test_listing() -> Listing:
@@ -72,8 +74,19 @@ async def test_dm():
     # Check user ID
     if YOUR_DISCORD_USER_ID == "YOUR_USER_ID_HERE":
         logger.error("❌ Please update YOUR_DISCORD_USER_ID in this script")
-        logger.error("   Get your Discord ID: Discord settings → Advanced → Enable Developer Mode")
-        logger.error("   Then right-click your name → Copy User ID")
+        logger.error("   Get your Discord User ID (NOT username!):")
+        logger.error("   1. Discord settings → Advanced → Enable Developer Mode")
+        logger.error("   2. Right-click your name → Copy User ID")
+        logger.error("   3. Paste the numerical ID (e.g., '184675305369792512')")
+        return
+    
+    # Validate that it's a numerical ID, not a username
+    if not YOUR_DISCORD_USER_ID.isdigit():
+        logger.error(f"❌ Invalid Discord User ID: '{YOUR_DISCORD_USER_ID}'")
+        logger.error("   Discord User IDs are numerical strings (e.g., '184675305369792512')")
+        logger.error("   You entered what looks like a username. Please get your User ID:")
+        logger.error("   1. Discord settings → Advanced → Enable Developer Mode")
+        logger.error("   2. Right-click your name → Copy User ID")
         return
     
     # Initialize bot
