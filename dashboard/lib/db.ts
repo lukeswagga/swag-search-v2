@@ -1,4 +1,4 @@
-import { Pool, QueryResult } from 'pg';
+import { Pool, QueryResult, QueryResultRow } from 'pg';
 
 // Validate DATABASE_URL
 if (!process.env.DATABASE_URL) {
@@ -15,7 +15,7 @@ const pool = new Pool({
 });
 
 // Query helper function
-export async function query<T = any>(
+export async function query<T extends QueryResultRow = any>(
   text: string,
   params?: any[]
 ): Promise<QueryResult<T>> {
