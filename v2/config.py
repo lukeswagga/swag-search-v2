@@ -40,10 +40,49 @@ MAX_PARALLEL_PAGES_PER_BRAND = 4  # Max pages to fetch in parallel per brand (ba
 BATCH_SIZE = 100  # Process listings in batches of 100
 
 # Smart pagination configuration
-# Always scrape at least the first page, but stop early when we hit already-seen listings.
+# Production mode: 2 pages per brand for new listings only
 MIN_PAGES = 1  # Always scrape at least page 1
-MAX_PAGES = 5  # Safety limit on pages per brand
+MAX_PAGES = 2  # Production: 2 pages per brand (new listings only)
 STOP_ON_DUPLICATE = True  # Enable smart pagination (stop when we hit existing listings)
+
+# Brand cycling configuration
+# All brands from brands.json (30 brands total)
+ALL_BRANDS = [
+    "14th Addiction",
+    "Alyx",
+    "Balenciaga",
+    "Balmain",
+    "Bottega Veneta",
+    "Chrome Hearts",
+    "Comme Des Garcons",
+    "Comme des Garcons Homme Plus",
+    "Dior",
+    "Dolce & Gabbana",
+    "Doublet",
+    "Hedi Slimane",
+    "Helmut Lang",
+    "Hysteric Glamour",
+    "Issey Miyake",
+    "Jean Paul Gaultier",
+    "Junya Watanabe",
+    "Kiko Kostadinov",
+    "LGB",
+    "Maison Margiela",
+    "Martine Rose",
+    "Number Nine",
+    "Prada",
+    "Raf Simons",
+    "Rick Owens",
+    "Sacai",
+    "Saint Laurent",
+    "Takahiromiyashita The Soloist",
+    "Thom Browne",
+    "Vetements",
+    "Yohji Yamamoto"
+]
+
+BRANDS_PER_CYCLE = 3  # Scrape 3 brands per cycle
+CYCLE_DELAY_SECONDS = 10  # Short delay between cycles (10 seconds)
 
 # Database Configuration
 def get_database_url() -> Optional[str]:

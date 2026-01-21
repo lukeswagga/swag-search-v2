@@ -21,14 +21,14 @@ if _parent_dir not in sys.path:
 try:
     from scrapers.yahoo_scraper import YahooScraper
     from scrapers.mercari_api_scraper import MercariAPIScraper
-    from config import SCRAPER_RUN_INTERVAL_SECONDS, get_discord_webhook_url, MAX_ALERTS_PER_CYCLE, get_database_url
+    from config import SCRAPER_RUN_INTERVAL_SECONDS, get_discord_webhook_url, MAX_ALERTS_PER_CYCLE, get_database_url, ALL_BRANDS, BRANDS_PER_CYCLE, CYCLE_DELAY_SECONDS
     from discord_notifier import DiscordNotifier
     from database import init_database, create_tables, save_listings_batch, close_database, get_active_filters, record_alert_sent, was_alert_sent, get_listings_since
     from filter_matcher import FilterMatcher
 except ImportError:
     from v2.scrapers.yahoo_scraper import YahooScraper
     from v2.scrapers.mercari_api_scraper import MercariAPIScraper
-    from v2.config import SCRAPER_RUN_INTERVAL_SECONDS, get_discord_webhook_url, MAX_ALERTS_PER_CYCLE, get_database_url
+    from v2.config import SCRAPER_RUN_INTERVAL_SECONDS, get_discord_webhook_url, MAX_ALERTS_PER_CYCLE, get_database_url, ALL_BRANDS, BRANDS_PER_CYCLE, CYCLE_DELAY_SECONDS
     from v2.discord_notifier import DiscordNotifier
     from v2.database import init_database, create_tables, save_listings_batch, close_database, get_active_filters, record_alert_sent, was_alert_sent, get_listings_since
     from v2.filter_matcher import FilterMatcher
@@ -407,11 +407,18 @@ class ScraperScheduler:
     
     async def run_continuous(self):
         """
-        Run scraper continuously with intervals
+        Run scraper continuously, cycling through all brands in batches
+        Cycles through all brands 3 at a time until complete, then starts over
         """
+        # Use all brands from config if not specified
+        all_brands = self.brands if self.brands else ALL_BRANDS
+        brands_per_cycle = BRANDS_PER_CYCLE
+        cycle_delay = CYCLE_DELAY_SECONDS
+        
         logger.info("🚀 Starting continuous scraper scheduler")
-        logger.info(f"   Interval: {self.run_interval_seconds} seconds ({self.run_interval_seconds / 60:.1f} minutes)")
-        logger.info(f"   Brands: {', '.join(self.brands)}")
+        logger.info(f"   Total brands: {len(all_brands)}")
+        logger.info(f"   Brands per cycle: {brands_per_cycle}")
+        logger.info(f"   Cycle delay: {cycle_delay} seconds")
         
         # Initialize database
         try:
@@ -434,41 +441,65 @@ class ScraperScheduler:
             self._database_initialized = False
         
         print(f"\n{'='*60}")
-        print("Scraper Scheduler Started (PRODUCTION MODE - Runs Continuously)")
+        print("Scraper Scheduler Started (PRODUCTION MODE)")
         print(f"{'='*60}")
         print("⚠️  WARNING: This runs CONTINUOUSLY until stopped (Ctrl+C)")
         print("⚠️  Make sure test_production_loop.py is NOT running!")
         print(f"{'='*60}")
-        print(f"Run interval: {self.run_interval_seconds} seconds ({self.run_interval_seconds / 60:.1f} minutes)")
-        print(f"Brands: {', '.join(self.brands)}")
+        print(f"Total brands: {len(all_brands)}")
+        print(f"Brands per cycle: {brands_per_cycle}")
+        print(f"Cycle delay: {cycle_delay} seconds")
+        print(f"Pages per brand: 2 (production mode)")
         print(f"Database: {'✅ Initialized' if self._database_initialized else '❌ Not available'}")
         print(f"{'='*60}\n")
         
         try:
             while not self._should_stop:
-                # Run scraper cycle
-                result = await self.run_scraper_cycle()
+                # Split brands into batches
+                total_cycles = (len(all_brands) + brands_per_cycle - 1) // brands_per_cycle
                 
-                # Print summary statistics
-                success_rate = (self.success_count / self.run_count * 100) if self.run_count > 0 else 0
-                stats_msg = (
-                    f"📊 Overall stats: {self.run_count} runs, "
-                    f"{self.success_count} successful, {self.error_count} errors "
-                    f"({success_rate:.1f}% success rate), "
-                    f"{self.total_listings_found} total listings "
-                    f"({self.total_yahoo_listings} Yahoo + {self.total_mercari_listings} Mercari)"
-                )
-                if self._database_initialized:
-                    stats_msg += (
-                        f", {self.total_new_listings} new saved, "
-                        f"{self.total_duplicates_skipped} duplicates skipped"
+                for cycle_idx in range(total_cycles):
+                    if self._should_stop:
+                        break
+                    
+                    start_idx = cycle_idx * brands_per_cycle
+                    end_idx = min(start_idx + brands_per_cycle, len(all_brands))
+                    current_brands = all_brands[start_idx:end_idx]
+                    
+                    # Update brands for this cycle
+                    self.brands = current_brands
+                    
+                    logger.info(f"📦 Cycle {cycle_idx + 1}/{total_cycles}: Scraping {len(current_brands)} brands")
+                    logger.info(f"   Brands: {', '.join(current_brands)}")
+                    
+                    # Run scraper cycle with current brands
+                    result = await self.run_scraper_cycle()
+                    
+                    # Print summary statistics
+                    success_rate = (self.success_count / self.run_count * 100) if self.run_count > 0 else 0
+                    stats_msg = (
+                        f"📊 Overall stats: {self.run_count} cycles, "
+                        f"{self.success_count} successful, {self.error_count} errors "
+                        f"({success_rate:.1f}% success rate), "
+                        f"{self.total_listings_found} total listings "
+                        f"({self.total_yahoo_listings} Yahoo + {self.total_mercari_listings} Mercari)"
                     )
-                logger.info(stats_msg)
+                    if self._database_initialized:
+                        stats_msg += (
+                            f", {self.total_new_listings} new saved, "
+                            f"{self.total_duplicates_skipped} duplicates skipped"
+                        )
+                    logger.info(stats_msg)
+                    
+                    # Short delay before next cycle (unless it's the last cycle)
+                    if not self._should_stop and cycle_idx < total_cycles - 1:
+                        logger.info(f"⏳ Waiting {cycle_delay} seconds before next brand batch...")
+                        await asyncio.sleep(cycle_delay)
                 
-                # Wait before next cycle (unless we should stop)
+                # After completing all brands, start over immediately
                 if not self._should_stop:
-                    logger.info(f"⏳ Waiting {self.run_interval_seconds} seconds before next cycle...")
-                    await asyncio.sleep(self.run_interval_seconds)
+                    logger.info(f"🔄 Completed all {len(all_brands)} brands. Starting over...")
+                    await asyncio.sleep(cycle_delay)  # Brief pause before restarting
                     
         except KeyboardInterrupt:
             logger.info("🛑 Scheduler stopped by user (KeyboardInterrupt)")
@@ -537,11 +568,9 @@ class ScraperScheduler:
 
 async def main():
     """Main entry point for scheduler"""
-    # Brands matching the test filters
-    brands = ["Rick Owens", "Raf Simons", "Comme des Garcons"]
-    
+    # Use all brands from config (will be cycled through 3 at a time)
     scheduler = ScraperScheduler(
-        brands=brands,
+        brands=[],  # Empty list means use ALL_BRANDS from config
         run_interval_seconds=SCRAPER_RUN_INTERVAL_SECONDS
     )
     
