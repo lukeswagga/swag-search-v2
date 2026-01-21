@@ -84,7 +84,7 @@ async def startup():
             db_url = "sqlite+aiosqlite:///./test.db"
         
         logger.info(f"🔧 Initializing database...")
-        await init_database(db_url)
+        init_database(db_url)
         await create_tables()
         logger.info("✅ FastAPI started, database ready")
     except Exception as e:
