@@ -33,14 +33,13 @@ app = FastAPI(title="SwagSearch API", version="2.0.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:3000",
-        "https://swag-search-v2.vercel.app",  # Explicit domain
-        "https://swag-search-v2-git-main-luke-vogrins-projects.vercel.app",  # Git branch
+        "http://localhost:3000",  # Local development
     ],
-    allow_origin_regex=r"https://.*\.vercel\.app",  # Wildcard for all Vercel deployments
+    allow_origin_regex=r"https://.*\.vercel\.app",  # Matches all Vercel domains
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],  # Add OPTIONS
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 # Pydantic models for request/response
