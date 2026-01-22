@@ -87,28 +87,32 @@ class FilterMatcher:
     def _brand_matches(self, listing_brand: Optional[str], filter_brands: List[str]) -> bool:
         """
         Check if listing brand matches any filter brand (case-insensitive, partial match)
-        
+
         Args:
             listing_brand: Listing brand name (can be None)
             filter_brands: List of filter brand names
-            
+
         Returns:
             True if matches, False otherwise
         """
         if not filter_brands:
             return True  # No brand filter means match all
-        
+
+        # Check for wildcard "*" - match all brands
+        if "*" in filter_brands:
+            return True
+
         if not listing_brand:
             return False  # Listing has no brand, can't match
-        
+
         listing_brand_lower = listing_brand.lower().strip()
-        
+
         for filter_brand in filter_brands:
             filter_brand_lower = filter_brand.lower().strip()
             # Partial match: check if filter brand is in listing brand or vice versa
             if filter_brand_lower in listing_brand_lower or listing_brand_lower in filter_brand_lower:
                 return True
-        
+
         return False
     
     def _price_matches(self, listing_price: int, price_min: Optional[float], price_max: Optional[float]) -> bool:
@@ -131,22 +135,53 @@ class FilterMatcher:
         
         return True
     
+    def _normalize_market_name(self, market: str) -> str:
+        """
+        Normalize market name to handle different formats
+
+        Args:
+            market: Market name (e.g., "yahoo", "Yahoo Japan", "mercari", "Mercari")
+
+        Returns:
+            Normalized market name (lowercase)
+        """
+        market_lower = market.lower().strip()
+
+        # Normalize "Yahoo Japan" to "yahoo"
+        if "yahoo" in market_lower:
+            return "yahoo"
+
+        # Normalize "Mercari" variations to "mercari"
+        if "mercari" in market_lower:
+            return "mercari"
+
+        # Return as-is if no normalization needed
+        return market_lower
+
     def _market_matches(self, listing_market: str, filter_markets: List[str]) -> bool:
         """
         Check if listing market matches filter markets
-        
+
         Args:
             listing_market: Listing market name
             filter_markets: List of filter market names
-            
+
         Returns:
             True if matches, False otherwise
         """
         if not filter_markets:
             return True  # No market filter means match all
-        
-        listing_market_lower = listing_market.lower().strip()
-        return listing_market_lower in filter_markets
+
+        # Normalize listing market
+        listing_market_normalized = self._normalize_market_name(listing_market)
+
+        # Normalize filter markets and check for match
+        for filter_market in filter_markets:
+            filter_market_normalized = self._normalize_market_name(filter_market)
+            if listing_market_normalized == filter_market_normalized:
+                return True
+
+        return False
     
     def _keywords_match(self, listing_title: str, filter_keywords: List[str]) -> bool:
         """
