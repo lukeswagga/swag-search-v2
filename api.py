@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from typing import List, Optional
 from datetime import datetime
 import logging
+import json
 
 # Import existing database functions
 from database import (
@@ -111,14 +112,20 @@ async def get_filters(discord_id: str = Query(..., description="Discord user ID"
         # Convert to response format
         response = []
         for f in filters:
+            # Convert brands from JSON string to list
+            brands = json.loads(f.brands) if f.brands else []
+            # Convert markets from comma-separated string to list
+            markets = f.markets.split(',') if f.markets else []
+            markets = [m.strip() for m in markets if m.strip()]  # Clean up whitespace
+            
             response.append({
                 "id": f.id,
                 "user_id": f.user_id,
                 "name": f.name,
-                "brands": f.brands,
+                "brands": brands,
                 "price_min": f.price_min,
                 "price_max": f.price_max,
-                "markets": f.markets,
+                "markets": markets,
                 "active": f.active
             })
         
@@ -141,28 +148,37 @@ async def create_filter(filter_data: FilterCreate):
             raise HTTPException(status_code=400, detail="At least one market is required")
         
         # Create UserFilter object
+        # Convert brands list to JSON string
+        brands_json = json.dumps(filter_data.brands) if filter_data.brands else None
+        # Convert markets list to comma-separated string
+        markets_str = ','.join(filter_data.markets) if filter_data.markets else None
+        
         user_filter = UserFilter(
             user_id=filter_data.discord_id,
             name=filter_data.name,
-            brands=filter_data.brands,
+            brands=brands_json,
             price_min=filter_data.price_min,
             price_max=filter_data.price_max,
-            markets=filter_data.markets,
+            markets=markets_str,
             active=True
         )
         
         # Save to database
         filter_id = await save_user_filter(user_filter)
         
-        # Return created filter
+        # Return created filter (convert back to lists for API response)
+        brands = json.loads(user_filter.brands) if user_filter.brands else []
+        markets = user_filter.markets.split(',') if user_filter.markets else []
+        markets = [m.strip() for m in markets if m.strip()]
+        
         response = {
             "id": filter_id,
             "user_id": user_filter.user_id,
             "name": user_filter.name,
-            "brands": user_filter.brands,
+            "brands": brands,
             "price_min": user_filter.price_min,
             "price_max": user_filter.price_max,
-            "markets": user_filter.markets,
+            "markets": markets,
             "active": user_filter.active
         }
         
@@ -188,23 +204,33 @@ async def update_filter(filter_id: int, filter_data: FilterCreate):
             raise HTTPException(status_code=404, detail="Filter not found or doesn't belong to user")
         
         # Update fields
+        # Convert brands list to JSON string
+        brands_json = json.dumps(filter_data.brands) if filter_data.brands else None
+        # Convert markets list to comma-separated string
+        markets_str = ','.join(filter_data.markets) if filter_data.markets else None
+        
         existing.name = filter_data.name
-        existing.brands = filter_data.brands
+        existing.brands = brands_json
         existing.price_min = filter_data.price_min
         existing.price_max = filter_data.price_max
-        existing.markets = filter_data.markets
+        existing.markets = markets_str
         
         # Save
         await save_user_filter(existing)
+        
+        # Convert back to lists for API response
+        brands = json.loads(existing.brands) if existing.brands else []
+        markets = existing.markets.split(',') if existing.markets else []
+        markets = [m.strip() for m in markets if m.strip()]
         
         response = {
             "id": existing.id,
             "user_id": existing.user_id,
             "name": existing.name,
-            "brands": existing.brands,
+            "brands": brands,
             "price_min": existing.price_min,
             "price_max": existing.price_max,
-            "markets": existing.markets,
+            "markets": markets,
             "active": existing.active
         }
         
@@ -271,13 +297,16 @@ async def get_feed(
         matched_listings = []
         for listing in all_listings:
             for user_filter in filters:
+                # Parse brands from JSON string
+                brands = json.loads(user_filter.brands) if user_filter.brands else []
+                
                 # Check brand match
                 brand_match = False
-                if "*" in user_filter.brands:
+                if "*" in brands:
                     brand_match = True
                 else:
-                    for brand in user_filter.brands:
-                        if brand.lower() in listing.brand.lower():
+                    for brand in brands:
+                        if brand.lower() in listing.brand.lower() if listing.brand else False:
                             brand_match = True
                             break
                 
@@ -286,8 +315,10 @@ async def get_feed(
                 price_max = user_filter.price_max if user_filter.price_max is not None else 999999
                 price_match = (price_min <= listing.price_jpy <= price_max)
                 
-                # Check market
-                market_match = listing.market in user_filter.markets
+                # Parse markets from comma-separated string and check match
+                markets = user_filter.markets.split(',') if user_filter.markets else []
+                markets = [m.strip().lower() for m in markets if m.strip()]
+                market_match = listing.market.lower() in markets if listing.market else False
                 
                 # If all match, include this listing
                 if brand_match and price_match and market_match:
@@ -299,6 +330,8 @@ async def get_feed(
         matched_listings = matched_listings[:limit]
         
         # Convert to response format
+        # Rough JPY to USD conversion rate (1 USD ≈ 147 JPY)
+        JPY_TO_USD_RATE = 147.0
         response = []
         for listing in matched_listings:
             response.append({
@@ -308,9 +341,9 @@ async def get_feed(
                 "title": listing.title,
                 "brand": listing.brand,
                 "price_jpy": listing.price_jpy,
-                "price_usd": listing.price_usd,
+                "price_usd": listing.price_jpy / JPY_TO_USD_RATE if listing.price_jpy else 0.0,
                 "image_url": listing.image_url,
-                "listing_url": listing.listing_url,
+                "listing_url": listing.url,
                 "first_seen": listing.first_seen.isoformat()
             })
         
