@@ -40,6 +40,17 @@ const BRANDS = [
 
 const MARKETS = ['Yahoo Japan', 'Mercari'];
 
+// Currency conversion constants
+const JPY_PER_USD = 147;
+
+function usdToJpy(usd: number): number {
+  return Math.round(usd * JPY_PER_USD);
+}
+
+function jpyToUsd(jpy: number): number {
+  return Math.round(jpy / JPY_PER_USD);
+}
+
 interface Filter {
   id: number;
   user_id: string;
@@ -65,8 +76,8 @@ export default function FiltersPage() {
   // Form state
   const [filterName, setFilterName] = useState('');
   const [selectedBrands, setSelectedBrands] = useState<string[]>([]);
-  const [minPrice, setMinPrice] = useState('');
-  const [maxPrice, setMaxPrice] = useState('');
+  const [minPriceUsd, setMinPriceUsd] = useState(0);
+  const [maxPriceUsd, setMaxPriceUsd] = useState(1000);
   const [selectedMarkets, setSelectedMarkets] = useState<string[]>([]);
 
   // Form errors
@@ -131,8 +142,8 @@ export default function FiltersPage() {
       newErrors.markets = 'Please select at least one market';
     }
 
-    const min = parseInt(minPrice) || 0;
-    const max = parseInt(maxPrice) || 999999;
+    const min = minPriceUsd || 0;
+    const max = maxPriceUsd || 1000;
 
     if (min < 0) {
       newErrors.price = 'Minimum price cannot be negative';
@@ -166,8 +177,8 @@ export default function FiltersPage() {
   const resetForm = () => {
     setFilterName('');
     setSelectedBrands([]);
-    setMinPrice('');
-    setMaxPrice('');
+    setMinPriceUsd(0);
+    setMaxPriceUsd(1000);
     setSelectedMarkets([]);
     setErrors({});
     setEditingFilter(null);
@@ -182,8 +193,8 @@ export default function FiltersPage() {
     setEditingFilter(filter);
     setFilterName(filter.name);
     setSelectedBrands(filter.brands);
-    setMinPrice(filter.price_min.toString());
-    setMaxPrice(filter.price_max === 999999 ? '' : filter.price_max.toString());
+    setMinPriceUsd(jpyToUsd(filter.price_min));
+    setMaxPriceUsd(filter.price_max === 999999 ? 1000 : jpyToUsd(filter.price_max));
     setSelectedMarkets(filter.markets);
     setErrors({});
     setIsDialogOpen(true);
@@ -195,8 +206,8 @@ export default function FiltersPage() {
     setIsSaving(true);
 
     try {
-      const min = parseInt(minPrice) || 0;
-      const max = parseInt(maxPrice) || 999999;
+      const min = usdToJpy(minPriceUsd || 0);
+      const max = maxPriceUsd ? usdToJpy(maxPriceUsd) : 999999;
 
       const brands = selectedBrands.includes('*') ? ['*'] : selectedBrands;
 
@@ -279,13 +290,16 @@ export default function FiltersPage() {
     if (minPrice === 0 && maxPrice === 999999) {
       return 'All prices';
     }
+    const minUsd = jpyToUsd(minPrice);
+    const maxUsd = jpyToUsd(maxPrice);
+    
     if (minPrice === 0) {
-      return `Under ¥${maxPrice.toLocaleString()}`;
+      return `Under $${maxUsd.toLocaleString()} (¥${maxPrice.toLocaleString()})`;
     }
     if (maxPrice === 999999) {
-      return `¥${minPrice.toLocaleString()}+`;
+      return `$${minUsd.toLocaleString()}+ (¥${minPrice.toLocaleString()}+)`;
     }
-    return `¥${minPrice.toLocaleString()} - ¥${maxPrice.toLocaleString()}`;
+    return `$${minUsd.toLocaleString()} - $${maxUsd.toLocaleString()} (¥${minPrice.toLocaleString()} - ¥${maxPrice.toLocaleString()})`;
   };
 
   const formatBrands = (brands: string[]): string => {
@@ -465,7 +479,7 @@ export default function FiltersPage() {
 
               {/* Price Range */}
               <div className="space-y-2">
-                <Label>Price Range (¥)</Label>
+                <Label>Price Range ($)</Label>
                 <div className="flex items-center gap-4">
                   <div className="flex-1 space-y-2">
                     <Label htmlFor="min-price" className="text-sm text-muted-foreground">
@@ -474,11 +488,14 @@ export default function FiltersPage() {
                     <Input
                       id="min-price"
                       type="number"
-                      value={minPrice}
-                      onChange={(e) => setMinPrice(e.target.value)}
+                      value={minPriceUsd}
+                      onChange={(e) => setMinPriceUsd(Number(e.target.value) || 0)}
                       placeholder="0"
                       min="0"
                     />
+                    <p className="text-xs text-gray-400 mt-1">
+                      ≈ ¥{usdToJpy(minPriceUsd).toLocaleString()}
+                    </p>
                   </div>
                   <div className="flex-1 space-y-2">
                     <Label htmlFor="max-price" className="text-sm text-muted-foreground">
@@ -487,13 +504,19 @@ export default function FiltersPage() {
                     <Input
                       id="max-price"
                       type="number"
-                      value={maxPrice}
-                      onChange={(e) => setMaxPrice(e.target.value)}
-                      placeholder="50000"
+                      value={maxPriceUsd}
+                      onChange={(e) => setMaxPriceUsd(Number(e.target.value) || 0)}
+                      placeholder="1000"
                       min="0"
                     />
+                    <p className="text-xs text-gray-400 mt-1">
+                      ≈ ¥{usdToJpy(maxPriceUsd).toLocaleString()}
+                    </p>
                   </div>
                 </div>
+                <p className="text-xs text-gray-500 mt-2">
+                  Exchange rate: ¥147 = $1
+                </p>
                 {errors.price && (
                   <p className="text-sm text-destructive">{errors.price}</p>
                 )}
