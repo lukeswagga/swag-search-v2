@@ -45,8 +45,8 @@ interface Filter {
   user_id: string;
   name: string;
   brands: string[];
-  min_price: number;
-  max_price: number;
+  price_min: number;
+  price_max: number;
   markets: string[];
   active: boolean;
 }
@@ -182,8 +182,8 @@ export default function FiltersPage() {
     setEditingFilter(filter);
     setFilterName(filter.name);
     setSelectedBrands(filter.brands);
-    setMinPrice(filter.min_price.toString());
-    setMaxPrice(filter.max_price === 999999 ? '' : filter.max_price.toString());
+    setMinPrice(filter.price_min.toString());
+    setMaxPrice(filter.price_max === 999999 ? '' : filter.price_max.toString());
     setSelectedMarkets(filter.markets);
     setErrors({});
     setIsDialogOpen(true);
@@ -204,8 +204,8 @@ export default function FiltersPage() {
         discord_id: session.user.id,
         name: filterName.trim(),
         brands,
-        min_price: min,
-        max_price: max,
+        price_min: min,
+        price_max: max,
         markets: selectedMarkets,
       };
 
@@ -361,7 +361,7 @@ export default function FiltersPage() {
                         </div>
                         <div>
                           <span className="font-medium">Price:</span>{' '}
-                          {formatPriceRange(filter.min_price, filter.max_price)}
+                          {formatPriceRange(filter.price_min, filter.price_max)}
                         </div>
                         <div>
                           <span className="font-medium">Markets:</span>{' '}

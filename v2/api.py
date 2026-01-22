@@ -47,8 +47,8 @@ class FilterCreate(BaseModel):
     discord_id: str
     name: str
     brands: List[str]
-    min_price: int = 0
-    max_price: int = 999999
+    price_min: int = 0
+    price_max: int = 999999
     markets: List[str]
 
 class FilterResponse(BaseModel):
@@ -56,8 +56,8 @@ class FilterResponse(BaseModel):
     user_id: str
     name: str
     brands: List[str]
-    min_price: int
-    max_price: int
+    price_min: int
+    price_max: int
     markets: List[str]
     active: bool
 
@@ -116,8 +116,8 @@ async def get_filters(discord_id: str = Query(..., description="Discord user ID"
                 "user_id": f.user_id,
                 "name": f.name,
                 "brands": f.brands,
-                "min_price": f.min_price,
-                "max_price": f.max_price,
+                "price_min": f.price_min,
+                "price_max": f.price_max,
                 "markets": f.markets,
                 "active": f.active
             })
@@ -145,8 +145,8 @@ async def create_filter(filter_data: FilterCreate):
             user_id=filter_data.discord_id,
             name=filter_data.name,
             brands=filter_data.brands,
-            min_price=filter_data.min_price,
-            max_price=filter_data.max_price,
+            price_min=filter_data.price_min,
+            price_max=filter_data.price_max,
             markets=filter_data.markets,
             active=True
         )
@@ -160,8 +160,8 @@ async def create_filter(filter_data: FilterCreate):
             "user_id": user_filter.user_id,
             "name": user_filter.name,
             "brands": user_filter.brands,
-            "min_price": user_filter.min_price,
-            "max_price": user_filter.max_price,
+            "price_min": user_filter.price_min,
+            "price_max": user_filter.price_max,
             "markets": user_filter.markets,
             "active": user_filter.active
         }
@@ -190,8 +190,8 @@ async def update_filter(filter_id: int, filter_data: FilterCreate):
         # Update fields
         existing.name = filter_data.name
         existing.brands = filter_data.brands
-        existing.min_price = filter_data.min_price
-        existing.max_price = filter_data.max_price
+        existing.price_min = filter_data.price_min
+        existing.price_max = filter_data.price_max
         existing.markets = filter_data.markets
         
         # Save
@@ -202,8 +202,8 @@ async def update_filter(filter_id: int, filter_data: FilterCreate):
             "user_id": existing.user_id,
             "name": existing.name,
             "brands": existing.brands,
-            "min_price": existing.min_price,
-            "max_price": existing.max_price,
+            "price_min": existing.price_min,
+            "price_max": existing.price_max,
             "markets": existing.markets,
             "active": existing.active
         }
@@ -283,7 +283,7 @@ async def get_feed(
                 
                 # Check price range
                 price_match = (
-                    user_filter.min_price <= listing.price_jpy <= user_filter.max_price
+                    user_filter.price_min <= listing.price_jpy <= user_filter.price_max
                 )
                 
                 # Check market

@@ -8,8 +8,8 @@ interface Filter {
   user_id: string;
   name: string;
   brands: string[];
-  min_price: number;
-  max_price: number;
+  price_min: number;
+  price_max: number;
   markets: string[];
   active: boolean;
 }
@@ -141,7 +141,7 @@ export default async function DashboardPage() {
                         <div>
                           <span className="text-gray-500">Price:</span>{" "}
                           <span className="text-gray-300">
-                            {formatPriceRange(filter.min_price, filter.max_price)}
+                            {formatPriceRange(filter.price_min, filter.price_max)}
                           </span>
                         </div>
                         <div>
