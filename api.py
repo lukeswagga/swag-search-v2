@@ -34,11 +34,12 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:3000",
-        "https://*.vercel.app",
-        "https://vercel.app"
+        "https://swag-search-v2.vercel.app",  # Explicit domain
+        "https://swag-search-v2-git-main-luke-vogrins-projects.vercel.app",  # Git branch
     ],
+    allow_origin_regex=r"https://.*\.vercel\.app",  # Wildcard for all Vercel deployments
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],  # Add OPTIONS
     allow_headers=["*"],
 )
 
