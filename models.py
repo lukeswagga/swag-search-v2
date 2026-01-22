@@ -77,6 +77,10 @@ class Listing(Base):
         Index('idx_listings_market_external_id', 'market', 'external_id', unique=True),
         Index('idx_listings_brand_price', 'brand', 'price_jpy'),
         Index('idx_listings_first_seen', 'first_seen'),
+        Index('idx_listings_market', 'market'),  # Market filtering
+        Index('idx_listings_price_jpy', 'price_jpy'),  # Price range filtering
+        # Note: Case-insensitive brand index (LOWER(brand)) must be created via migration
+        # because SQLAlchemy Index doesn't support functional indexes directly in a portable way
     )
     
     def __repr__(self):

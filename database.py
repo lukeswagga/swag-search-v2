@@ -637,13 +637,13 @@ def listing_exists_sync(external_id: str, market: str) -> bool:
     """
     Synchronous wrapper for listing_exists (for backward compatibility).
     ⚠️  WARNING: This is not truly async-safe. Use async listing_exists() in new code.
-    
+
     For now, this returns False if database isn't ready, which is safe for
     the smart pagination use case (assumes listings don't exist until proven otherwise).
     """
     if _session_factory is None:
         return False
-    
+
     # Create a new event loop or use existing one
     try:
         import asyncio
@@ -659,3 +659,198 @@ def listing_exists_sync(external_id: str, market: str) -> bool:
     except RuntimeError:
         # No event loop - create one
         return asyncio.run(listing_exists(external_id, market))
+
+
+async def search_listings_paginated(
+    brand: Optional[str] = None,
+    min_price_jpy: Optional[int] = None,
+    max_price_jpy: Optional[int] = None,
+    market: Optional[str] = None,
+    sort: str = "newest",
+    page: int = 1,
+    per_page: int = 100
+) -> tuple[List[Listing], int]:
+    """
+    Search all listings with pagination and filtering.
+
+    Args:
+        brand: Brand name to search (case-insensitive, partial match)
+        min_price_jpy: Minimum price in JPY
+        max_price_jpy: Maximum price in JPY
+        market: Market filter ("yahoo", "mercari", or None for all)
+        sort: Sort order ("newest", "oldest", "price_low", "price_high")
+        page: Page number (1-indexed)
+        per_page: Items per page (max 200)
+
+    Returns:
+        Tuple of (listings, total_count)
+    """
+    if _session_factory is None:
+        raise ValueError("Database not initialized. Call init_database() first.")
+
+    try:
+        async with _session_factory() as session:
+            # Build base query
+            from sqlalchemy import func
+            query = select(Listing)
+
+            # Apply filters
+            conditions = []
+
+            if brand:
+                # Case-insensitive partial match
+                conditions.append(func.lower(Listing.brand).like(f"%{brand.lower()}%"))
+
+            if min_price_jpy is not None:
+                conditions.append(Listing.price_jpy >= min_price_jpy)
+
+            if max_price_jpy is not None:
+                conditions.append(Listing.price_jpy <= max_price_jpy)
+
+            if market and market != "all":
+                conditions.append(Listing.market == market)
+
+            # Apply all conditions
+            if conditions:
+                query = query.where(and_(*conditions))
+
+            # Apply sorting
+            if sort == "newest":
+                query = query.order_by(Listing.first_seen.desc())
+            elif sort == "oldest":
+                query = query.order_by(Listing.first_seen.asc())
+            elif sort == "price_low":
+                query = query.order_by(Listing.price_jpy.asc())
+            elif sort == "price_high":
+                query = query.order_by(Listing.price_jpy.desc())
+            else:
+                # Default to newest
+                query = query.order_by(Listing.first_seen.desc())
+
+            # Get total count
+            from sqlalchemy import func as sql_func
+            count_query = select(sql_func.count()).select_from(query.subquery())
+            total_result = await session.execute(count_query)
+            total_count = total_result.scalar()
+
+            # Apply pagination
+            offset = (page - 1) * per_page
+            query = query.offset(offset).limit(per_page)
+
+            # Execute query
+            result = await session.execute(query)
+            listings = result.scalars().all()
+
+            logger.info(
+                f"Search query: brand={brand}, price={min_price_jpy}-{max_price_jpy}, "
+                f"market={market}, sort={sort}, page={page}/{per_page} -> "
+                f"returned {len(listings)} of {total_count} total"
+            )
+
+            return list(listings), total_count
+
+    except Exception as e:
+        logger.error(f"❌ Error searching listings: {e}", exc_info=True)
+        return [], 0
+
+
+async def get_recent_listings(
+    since: datetime,
+    brand: Optional[str] = None,
+    min_price_jpy: Optional[int] = None,
+    max_price_jpy: Optional[int] = None,
+    market: Optional[str] = None,
+    limit: int = 50
+) -> List[Listing]:
+    """
+    Get listings that appeared after a given timestamp, with optional filtering.
+    Used for real-time updates in the frontend.
+
+    Args:
+        since: Get listings with first_seen after this timestamp
+        brand: Brand name to filter (case-insensitive, partial match)
+        min_price_jpy: Minimum price in JPY
+        max_price_jpy: Maximum price in JPY
+        market: Market filter ("yahoo", "mercari", or None for all)
+        limit: Maximum number of listings to return
+
+    Returns:
+        List of Listing objects sorted by first_seen DESC (newest first)
+    """
+    if _session_factory is None:
+        raise ValueError("Database not initialized. Call init_database() first.")
+
+    try:
+        async with _session_factory() as session:
+            from sqlalchemy import func
+
+            # Build query
+            query = select(Listing).where(Listing.first_seen > since)
+
+            # Apply optional filters
+            conditions = []
+
+            if brand:
+                conditions.append(func.lower(Listing.brand).like(f"%{brand.lower()}%"))
+
+            if min_price_jpy is not None:
+                conditions.append(Listing.price_jpy >= min_price_jpy)
+
+            if max_price_jpy is not None:
+                conditions.append(Listing.price_jpy <= max_price_jpy)
+
+            if market and market != "all":
+                conditions.append(Listing.market == market)
+
+            if conditions:
+                query = query.where(and_(*conditions))
+
+            # Sort by newest first and limit
+            query = query.order_by(Listing.first_seen.desc()).limit(limit)
+
+            # Execute query
+            result = await session.execute(query)
+            listings = result.scalars().all()
+
+            logger.info(
+                f"Recent listings query: since={since}, filters={bool(conditions)} -> "
+                f"returned {len(listings)} new listings"
+            )
+
+            return list(listings)
+
+    except Exception as e:
+        logger.error(f"❌ Error getting recent listings: {e}", exc_info=True)
+        return []
+
+
+async def get_listing_by_id(listing_id: int) -> Optional[Listing]:
+    """
+    Get a single listing by ID.
+
+    Args:
+        listing_id: Listing ID
+
+    Returns:
+        Listing object or None if not found
+    """
+    if _session_factory is None:
+        raise ValueError("Database not initialized. Call init_database() first.")
+
+    try:
+        async with _session_factory() as session:
+            result = await session.execute(
+                select(Listing).where(Listing.id == listing_id)
+            )
+            listing = result.scalar_one_or_none()
+
+            if listing:
+                logger.debug(f"Found listing {listing_id}: {listing.title}")
+            else:
+                logger.debug(f"Listing {listing_id} not found")
+
+            return listing
+
+    except Exception as e:
+        logger.error(f"❌ Error getting listing by ID: {e}", exc_info=True)
+        return None
