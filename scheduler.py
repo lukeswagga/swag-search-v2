@@ -8,7 +8,7 @@ Main scheduler loop that runs scraper continuously with proper rate limiting
 """
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Optional
 import sys
 import os
@@ -568,8 +568,8 @@ class ScraperScheduler:
             print(f"Channel ID: ❌ Not set (set DISCORD_CHANNEL_ID for channel alerts)")
         print(f"{'='*60}\n")
         
-        # Track last cleanup time
-        last_cleanup = datetime.now()
+        # Track last cleanup time - initialize to 24 hours ago so cleanup runs immediately on first check
+        last_cleanup = datetime.now() - timedelta(seconds=86400)
         
         try:
             while not self._should_stop:
