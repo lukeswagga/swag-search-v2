@@ -275,6 +275,14 @@ async def save_listings_batch(listings: List[Listing]) -> Dict[str, int]:
             )
             
     except Exception as e:
+        error_str = str(e)
+        # Check if error is about missing category column
+        if "category" in error_str.lower() and ("does not exist" in error_str or "UndefinedColumnError" in error_str):
+            logger.error("❌ Category column missing in database!")
+            logger.error("   Run migration on your production server:")
+            logger.error("   python3 migrations/add_category_column.py")
+            logger.error("   Or manually: ALTER TABLE listings ADD COLUMN category VARCHAR(200);")
+        
         logger.error(f"❌ Error in batch save: {e}", exc_info=True)
         if _session_factory:
             async with _session_factory() as session:
