@@ -2,8 +2,8 @@
 
 ## Fix "Invalid OAuth2 redirect_uri" Error
 
-### Step 1: Get Your Production URL
-Your production URL is: `https://swag-search-v2.vercel.app`
+### Step 1: Your Production URL
+Your production URL is: **`https://swag-search-v2.vercel.app`**
 
 ### Step 2: Add Redirect URI in Discord Developer Portal
 

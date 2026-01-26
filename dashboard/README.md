@@ -45,7 +45,7 @@ DISCORD_INSTANT_ROLE_ID=your_instant_role_id
 
 # NextAuth
 NEXTAUTH_SECRET=your_nextauth_secret
-NEXTAUTH_URL=http://localhost:3000  # or your production URL
+NEXTAUTH_URL=https://swag-search-v2.vercel.app  # Production URL (use http://localhost:3000 for local dev)
 
 # API
 NEXT_PUBLIC_API_URL=https://web-production-0bd84.up.railway.app
