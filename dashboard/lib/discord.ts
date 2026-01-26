@@ -24,10 +24,11 @@ export async function checkDiscordRole(
 
     // Get user's guilds (servers) using their access token
     console.log('Fetching user guilds with access token');
-    const guildsResponse = await fetch('https://discord.com/api/users/@me/guilds', {
+    const guildsResponse = await fetch('https://discord.com/api/v10/users/@me/guilds', {
       headers: {
         Authorization: `Bearer ${accessToken}`,
         'Content-Type': 'application/json',
+        'X-Discord-API-Version': '10',
       },
     });
 
@@ -41,8 +42,14 @@ export async function checkDiscordRole(
         tokenLength: accessToken?.length,
       });
       
-      // If token is invalid/expired, return specific error
+      // Handle specific error status codes
       if (guildsResponse.status === 401) {
+        console.error('Discord API: Unauthorized - token may be invalid or expired');
+        return { hasAccess: false, reason: 'api_error' };
+      }
+      
+      if (guildsResponse.status === 426) {
+        console.error('Discord API: Upgrade Required - API version mismatch');
         return { hasAccess: false, reason: 'api_error' };
       }
       
@@ -68,11 +75,12 @@ export async function checkDiscordRole(
     });
     
     const memberResponse = await fetch(
-      `https://discord.com/api/guilds/${YOUR_SERVER_ID}/members/${userId}`,
+      `https://discord.com/api/v10/guilds/${YOUR_SERVER_ID}/members/${userId}`,
       {
         headers: {
           Authorization: `Bot ${DISCORD_BOT_TOKEN}`,
           'Content-Type': 'application/json',
+          'X-Discord-API-Version': '10',
         },
       }
     );
