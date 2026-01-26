@@ -17,7 +17,7 @@ export const authOptions: NextAuthOptions = {
       clientSecret: process.env.DISCORD_CLIENT_SECRET!,
       authorization: {
         params: {
-          scope: 'identify email',
+          scope: 'identify email guilds',
         },
       },
     }),
@@ -51,6 +51,8 @@ export const authOptions: NextAuthOptions = {
           id: token.sub as string,
           discord_id: token.sub as string,
         };
+        // Expose access token for Discord API calls
+        session.accessToken = token.accessToken as string;
       }
       return session;
     },

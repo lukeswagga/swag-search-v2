@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth/next';
+import { getToken } from 'next-auth/jwt';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { checkDiscordRole } from '@/lib/discord';
 
@@ -8,7 +9,23 @@ export async function GET(request: NextRequest) {
     // Get the session from the server
     const session = await getServerSession(authOptions);
 
-    if (!session || !session.accessToken || !session.user?.id) {
+    if (!session || !session.user?.id) {
+      return NextResponse.json(
+        { hasAccess: false, reason: 'not_authenticated' },
+        { status: 401 }
+      );
+    }
+
+    // Get the access token from JWT
+    // Convert NextRequest to format getToken expects
+    const token = await getToken({ 
+      req: {
+        headers: Object.fromEntries(request.headers.entries()),
+      } as any,
+      secret: process.env.NEXTAUTH_SECRET 
+    });
+
+    if (!token || !token.accessToken || typeof token.accessToken !== 'string') {
       return NextResponse.json(
         { hasAccess: false, reason: 'not_authenticated' },
         { status: 401 }
@@ -17,7 +34,7 @@ export async function GET(request: NextRequest) {
 
     // Check Discord role
     const result = await checkDiscordRole(
-      session.accessToken,
+      token.accessToken,
       session.user.id,
       'Instant'
     );

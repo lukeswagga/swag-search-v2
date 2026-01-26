@@ -10,6 +10,7 @@ declare module 'next-auth' {
       image?: string | null;
       discord_id?: string;
     };
+    accessToken?: string;
   }
 
   interface User {
