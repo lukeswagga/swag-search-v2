@@ -56,33 +56,39 @@ export async function GET(request: NextRequest) {
     });
 
     if (!token) {
-      console.error('No token found');
+      console.error('No token found', {
+        hasSession: !!session,
+        sessionUserId: session?.user?.id,
+      });
       return NextResponse.json(
         { hasAccess: false, reason: 'not_authenticated', details: 'JWT token not found' },
         { status: 401 }
       );
     }
 
-    if (!token.accessToken || typeof token.accessToken !== 'string') {
-      console.error('Missing access token in JWT', {
-        tokenKeys: Object.keys(token),
-        hasSub: !!token.sub,
-        hasId: !!token.id,
+    // Try to get access token from multiple sources
+    let accessToken: string | null = null;
+    
+    // First, try JWT token
+    if (token.accessToken && typeof token.accessToken === 'string') {
+      accessToken = token.accessToken;
+      console.log('Using access token from JWT');
+    }
+    // Fallback to session
+    else if ((session as any).accessToken && typeof (session as any).accessToken === 'string') {
+      accessToken = (session as any).accessToken;
+      console.log('Using access token from session');
+    }
+    
+    if (!accessToken) {
+      console.error('Missing access token in both JWT and session', {
+        tokenKeys: token ? Object.keys(token) : [],
+        hasSub: !!token?.sub,
+        hasId: !!token?.id,
+        sessionHasAccessToken: !!(session as any).accessToken,
       });
-      // Try to get access token from session if available
-      const sessionAccessToken = (session as any).accessToken;
-      if (sessionAccessToken && typeof sessionAccessToken === 'string') {
-        console.log('Using access token from session');
-        // Use session access token as fallback
-        const result = await checkDiscordRole(
-          sessionAccessToken,
-          session.user.id,
-          'Instant'
-        );
-        return NextResponse.json(result);
-      }
       return NextResponse.json(
-        { hasAccess: false, reason: 'not_authenticated', details: 'Access token not found in session. Please sign out and sign in again.' },
+        { hasAccess: false, reason: 'not_authenticated', details: 'Access token not found. Please sign out completely and sign in again with Discord.' },
         { status: 401 }
       );
     }
@@ -100,7 +106,7 @@ export async function GET(request: NextRequest) {
     // Check Discord role
     console.log('Starting Discord role check for user:', session.user.id);
     const result = await checkDiscordRole(
-      token.accessToken,
+      accessToken,
       session.user.id,
       'Instant'
     );

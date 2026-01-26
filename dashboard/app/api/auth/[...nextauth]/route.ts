@@ -20,6 +20,8 @@ export const authOptions: NextAuthOptions = {
           scope: 'identify email guilds',
         },
       },
+      // Ensure proper callback handling
+      checks: ['state'],
     }),
   ],
   callbacks: {
