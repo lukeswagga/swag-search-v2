@@ -341,17 +341,17 @@ export default function FeedPage() {
     }
   }, [selectedBrands, priceRange, market, sort, status, session, fetchListings]);
 
-  // Auto-refresh every 30 seconds to show new listings
+  // Auto-refresh every 10 seconds to show new listings (real-time updates)
   useEffect(() => {
-    if (status !== 'authenticated' || !session?.user?.id) return;
+    if (status !== 'authenticated' || !session?.user?.id || !hasAccess) return;
 
     const interval = setInterval(() => {
-      // Refetch page 1 to get newest items
+      // Refetch page 1 to get newest items (don't append, replace)
       fetchListings(1, false);
-    }, 30000); // 30 seconds
+    }, 10000); // 10 seconds for real-time feel
     
     return () => clearInterval(interval);
-  }, [selectedBrands, priceRange, market, sort]); // Re-run if filters change
+  }, [selectedBrands, priceRange, market, sort, hasAccess, fetchListings]); // Re-run if filters change
 
   const loadMore = () => {
     if (loading) return;

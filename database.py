@@ -24,6 +24,9 @@ except ImportError:
 _engine: Optional[AsyncEngine] = None
 _session_factory: Optional[async_sessionmaker] = None
 
+# Cache for category column existence
+_category_column_exists: Optional[bool] = None
+
 
 def init_database(database_url: Optional[str] = None) -> None:
     """
@@ -195,6 +198,38 @@ async def save_listing(listing: Listing) -> bool:
         return False
 
 
+async def _check_category_column_exists(session) -> bool:
+    """Check if category column exists in listings table"""
+    global _category_column_exists
+    if _category_column_exists is not None:
+        return _category_column_exists
+    
+    try:
+        from sqlalchemy import text
+        from config import get_database_url
+        
+        db_url = get_database_url() or ""
+        if "postgresql" in db_url.lower():
+            result = await session.execute(text("""
+                SELECT EXISTS (
+                    SELECT FROM information_schema.columns
+                    WHERE table_name = 'listings'
+                    AND column_name = 'category'
+                )
+            """))
+            _category_column_exists = result.scalar()
+        elif "sqlite" in db_url.lower():
+            result = await session.execute(text("PRAGMA table_info(listings)"))
+            columns = [row[1] for row in result.fetchall()]
+            _category_column_exists = 'category' in columns
+        else:
+            _category_column_exists = False
+    except Exception as e:
+        logger.debug(f"Error checking category column: {e}")
+        _category_column_exists = False
+    
+    return _category_column_exists
+
 async def save_listings_batch(listings: List[Listing]) -> Dict[str, int]:
     """
     Save multiple listings to the database in a batch.
@@ -220,6 +255,14 @@ async def save_listings_batch(listings: List[Listing]) -> Dict[str, int]:
     
     try:
         async with _session_factory() as session:
+            # Check if category column exists - if not, remove category from listings
+            has_category_column = await _check_category_column_exists(session)
+            if not has_category_column:
+                # Remove category attribute to avoid SQL errors
+                for listing in listings:
+                    if hasattr(listing, 'category') and listing.category is not None:
+                        # Use object.__setattr__ to bypass SQLAlchemy's attribute system
+                        object.__setattr__(listing, 'category', None)
             # Build lookup map: (market, external_id) -> listing
             lookup_map = {(listing.market, listing.external_id): listing for listing in listings}
             
@@ -750,9 +793,30 @@ async def search_listings_paginated(
             offset = (page - 1) * per_page
             query = query.offset(offset).limit(per_page)
 
-            # Execute query
-            result = await session.execute(query)
-            listings = result.scalars().all()
+            # Execute query - handle missing category column gracefully
+            try:
+                result = await session.execute(query)
+                listings = result.scalars().all()
+            except Exception as e:
+                error_str = str(e)
+                if "category" in error_str.lower() and ("does not exist" in error_str or "UndefinedColumnError" in error_str):
+                    # Category column doesn't exist - query without it
+                    logger.warning("⚠️  Category column missing - querying without category field")
+                    # Rebuild query using explicit columns (excluding category)
+                    from sqlalchemy.orm import load_only
+                    # Use load_only to exclude category column
+                    query_no_category = query.options(load_only(
+                        Listing.id, Listing.market, Listing.external_id, Listing.title,
+                        Listing.price_jpy, Listing.brand, Listing.url, Listing.image_url,
+                        Listing.listing_type, Listing.seller_id, Listing.first_seen, Listing.last_seen
+                    ))
+                    result = await session.execute(query_no_category)
+                    listings = result.scalars().all()
+                    # Set category to None for all listings
+                    for listing in listings:
+                        object.__setattr__(listing, 'category', None)
+                else:
+                    raise
 
             logger.info(
                 f"Search query: brand={brand}, price={min_price_jpy}-{max_price_jpy}, "
