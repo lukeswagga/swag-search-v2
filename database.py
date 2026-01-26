@@ -698,8 +698,19 @@ async def search_listings_paginated(
             conditions = []
 
             if brand:
-                # Case-insensitive partial match
-                conditions.append(func.lower(Listing.brand).like(f"%{brand.lower()}%"))
+                # Support pipe-separated brands (OR logic)
+                if '|' in brand:
+                    brand_list = [b.strip() for b in brand.split('|') if b.strip()]
+                    if brand_list:
+                        from sqlalchemy import or_
+                        brand_conditions = [
+                            func.lower(Listing.brand).like(f"%{b.lower()}%")
+                            for b in brand_list
+                        ]
+                        conditions.append(or_(*brand_conditions))
+                else:
+                    # Case-insensitive partial match for single brand
+                    conditions.append(func.lower(Listing.brand).like(f"%{brand.lower()}%"))
 
             if min_price_jpy is not None:
                 conditions.append(Listing.price_jpy >= min_price_jpy)
@@ -791,7 +802,19 @@ async def get_recent_listings(
             conditions = []
 
             if brand:
-                conditions.append(func.lower(Listing.brand).like(f"%{brand.lower()}%"))
+                # Support pipe-separated brands (OR logic)
+                if '|' in brand:
+                    brand_list = [b.strip() for b in brand.split('|') if b.strip()]
+                    if brand_list:
+                        from sqlalchemy import or_
+                        brand_conditions = [
+                            func.lower(Listing.brand).like(f"%{b.lower()}%")
+                            for b in brand_list
+                        ]
+                        conditions.append(or_(*brand_conditions))
+                else:
+                    # Case-insensitive partial match for single brand
+                    conditions.append(func.lower(Listing.brand).like(f"%{brand.lower()}%"))
 
             if min_price_jpy is not None:
                 conditions.append(Listing.price_jpy >= min_price_jpy)
@@ -854,3 +877,45 @@ async def get_listing_by_id(listing_id: int) -> Optional[Listing]:
     except Exception as e:
         logger.error(f"❌ Error getting listing by ID: {e}", exc_info=True)
         return None
+
+
+async def get_brands_with_counts() -> List[Dict[str, any]]:
+    """
+    Get all distinct brands with their listing counts.
+    
+    Returns:
+        List of dictionaries with 'name' and 'count' keys, sorted by count descending
+    """
+    if _session_factory is None:
+        raise ValueError("Database not initialized. Call init_database() first.")
+    
+    try:
+        async with _session_factory() as session:
+            from sqlalchemy import func
+            
+            # Query to get distinct brands with counts
+            query = (
+                select(
+                    Listing.brand,
+                    func.count(Listing.id).label('count')
+                )
+                .where(Listing.brand.isnot(None))
+                .where(Listing.brand != '')
+                .group_by(Listing.brand)
+                .order_by(func.count(Listing.id).desc())
+            )
+            
+            result = await session.execute(query)
+            rows = result.all()
+            
+            brands = [
+                {"name": row.brand, "count": row.count}
+                for row in rows
+            ]
+            
+            logger.info(f"Retrieved {len(brands)} brands with counts")
+            return brands
+    
+    except Exception as e:
+        logger.error(f"❌ Error getting brands: {e}", exc_info=True)
+        return []

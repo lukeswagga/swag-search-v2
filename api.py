@@ -22,6 +22,7 @@ from database import (
     search_listings_paginated,
     get_recent_listings,
     get_listing_by_id,
+    get_brands_with_counts,
 )
 from models import UserFilter, Listing
 from config import get_database_url
@@ -627,6 +628,24 @@ async def get_listing_detail(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# Get brands with counts (NEW - for brand selector)
+@app.get("/api/brands")
+async def get_brands():
+    """
+    Get all distinct brands with their listing counts.
+    Used for the brand selector in the feed page.
+    """
+    try:
+        brands = await get_brands_with_counts()
+        
+        logger.info(f"✅ Retrieved {len(brands)} brands")
+        return brands
+    
+    except Exception as e:
+        logger.error(f"❌ Error getting brands: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # Root endpoint
 @app.get("/")
 async def root():
@@ -641,6 +660,7 @@ async def root():
             "feed": "/api/feed",
             "search": "/api/feed/search",
             "recent": "/api/feed/recent",
-            "listing_detail": "/api/listings/{id}"
+            "listing_detail": "/api/listings/{id}",
+            "brands": "/api/brands"
         }
     }
