@@ -60,6 +60,16 @@ except ImportError:
         sys.path.insert(0, _parent_dir)
     from blacklist import is_blacklisted
 
+try:
+    from category_filter import should_exclude_category
+except ImportError:
+    import sys
+    import os
+    _parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if _parent_dir not in sys.path:
+        sys.path.insert(0, _parent_dir)
+    from category_filter import should_exclude_category
+
 from config import (
     MERCARI_MAX_REQUESTS_PER_MINUTE,
     MERCARI_MIN_DELAY_BETWEEN_REQUESTS,
@@ -542,6 +552,84 @@ class MercariAPIScraper(BaseScraper):
         
         return None
     
+    def _map_category_id_to_name(self, category_id: Optional[int]) -> Optional[str]:
+        """
+        Map Mercari category_id to readable category name
+        
+        Args:
+            category_id: Category ID from API response
+        
+        Returns:
+            Category name or None if not found
+        """
+        if not category_id:
+            return None
+        
+        # Common Mercari category mappings
+        # Note: This is a simplified mapping. For a complete mapping, you'd need
+        # to fetch the full category tree from Mercari's API or maintain a comprehensive list
+        category_map = {
+            # Men's Fashion categories (approximate IDs - may need adjustment)
+            1: "Men's Fashion",
+            2: "Men's Clothing",
+            3: "Men's Shoes",
+            4: "Men's Accessories",
+            5: "Bags",
+            # Add more mappings as needed based on actual API responses
+        }
+        
+        # Try direct mapping first
+        if category_id in category_map:
+            return category_map[category_id]
+        
+        # If category_id is not in our map, try to extract from item data
+        # The API might include category name in the item object
+        return None
+    
+    def _extract_category_from_item(self, item: Dict[str, Any]) -> Optional[str]:
+        """
+        Extract category name from Mercari API item response
+        
+        Args:
+            item: Item data from API response
+        
+        Returns:
+            Category name or path, or None if not found
+        """
+        try:
+            # Method 1: Check for category object with name
+            category_obj = item.get("category")
+            if category_obj:
+                if isinstance(category_obj, dict):
+                    category_name = category_obj.get("name")
+                    if category_name:
+                        return category_name
+                elif isinstance(category_obj, str):
+                    return category_obj
+            
+            # Method 2: Check for categoryId and map it
+            category_id = item.get("categoryId")
+            if category_id:
+                mapped_name = self._map_category_id_to_name(category_id)
+                if mapped_name:
+                    return mapped_name
+                # If mapping fails, return the ID as string for filtering
+                return f"category_{category_id}"
+            
+            # Method 3: Check for category path or breadcrumb
+            category_path = item.get("categoryPath") or item.get("category_path")
+            if category_path:
+                if isinstance(category_path, list) and len(category_path) > 0:
+                    # Return the last (most specific) category in the path
+                    return category_path[-1] if isinstance(category_path[-1], str) else str(category_path[-1])
+                elif isinstance(category_path, str):
+                    return category_path
+            
+            return None
+        except Exception as e:
+            logger.debug(f"Error extracting category from item: {e}")
+            return None
+    
     def _parse_api_item(self, item: Dict[str, Any], brand: str) -> Optional[Dict[str, Any]]:
         """
         Parse a single item from API response
@@ -600,6 +688,9 @@ class MercariAPIScraper(BaseScraper):
             # Mercari only has fixed price listings (no auctions)
             listing_type = "fixed"
             
+            # Extract category
+            category = self._extract_category_from_item(item)
+            
             # Build listing data
             listing_data = {
                 'market': 'mercari',
@@ -610,7 +701,8 @@ class MercariAPIScraper(BaseScraper):
                 'url': url,
                 'image_url': image_url,
                 'listing_type': listing_type,
-                'seller_id': seller_id
+                'seller_id': seller_id,
+                'category': category
             }
             
             return listing_data
@@ -677,6 +769,12 @@ class MercariAPIScraper(BaseScraper):
                 listing_brand = listing_data.get('brand', brand)
                 if is_blacklisted(title, listing_brand):
                     logger.debug(f"⏭️  Skipping blacklisted item: {title[:50]}")
+                    continue  # Skip this listing
+                
+                # Check category filter
+                listing_category = listing_data.get('category')
+                if should_exclude_category(listing_category):
+                    logger.debug(f"⏭️  Skipping excluded category: {listing_category}")
                     continue  # Skip this listing
                 
                 listings.append(listing_data)
@@ -847,6 +945,7 @@ class MercariAPIScraper(BaseScraper):
                     image_url=listing_data.get('image_url'),
                     listing_type=listing_data['listing_type'],
                     seller_id=listing_data.get('seller_id'),
+                    category=listing_data.get('category'),
                     first_seen=datetime.now(timezone.utc),
                     last_seen=datetime.now(timezone.utc)
                 )

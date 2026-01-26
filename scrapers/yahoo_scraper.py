@@ -40,6 +40,16 @@ except ImportError:
         sys.path.insert(0, _parent_dir)
     from blacklist import is_blacklisted
 
+try:
+    from category_filter import should_exclude_category
+except ImportError:
+    import sys
+    import os
+    _parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if _parent_dir not in sys.path:
+        sys.path.insert(0, _parent_dir)
+    from category_filter import should_exclude_category
+
 from config import (
     YAHOO_SEARCH_URL,
     YAHOO_TIMEOUT,
@@ -296,6 +306,54 @@ class YahooScraper(BaseScraper):
         
         return None
     
+    def extract_category(self, item: BeautifulSoup) -> Optional[str]:
+        """
+        Extract category from Yahoo Japan listing item
+        
+        Args:
+            item: BeautifulSoup element for the listing
+        
+        Returns:
+            Category name or path, or None if not found
+        """
+        try:
+            # Method 1: Look for category breadcrumb
+            category_link = item.select_one("a[href*='category']")
+            if category_link:
+                category_text = category_link.get_text(strip=True)
+                if category_text:
+                    return category_text
+            
+            # Method 2: Look for category in data attributes
+            category_attr = item.get('data-category') or item.get('data-cat')
+            if category_attr:
+                return category_attr
+            
+            # Method 3: Look for category class or text
+            category_elem = item.select_one(".Product__category, .category, [class*='Category']")
+            if category_elem:
+                category_text = category_elem.get_text(strip=True)
+                if category_text:
+                    return category_text
+            
+            # Method 4: Extract from URL if available
+            link_tag = item.select_one("a.Product__titleLink")
+            if link_tag:
+                href = link_tag.get('href', '')
+                # Yahoo URLs sometimes contain category info
+                if '/category/' in href:
+                    parts = href.split('/category/')
+                    if len(parts) > 1:
+                        category_part = parts[1].split('/')[0]
+                        # Decode URL-encoded category names
+                        import urllib.parse
+                        return urllib.parse.unquote(category_part)
+            
+            return None
+        except Exception as e:
+            logger.debug(f"Error extracting category: {e}")
+            return None
+    
     def parse_listing_item(self, item: BeautifulSoup, brand: str) -> Optional[Dict[str, Any]]:
         """
         Parse a single listing item from BeautifulSoup element
@@ -347,6 +405,9 @@ class YahooScraper(BaseScraper):
             # Determine listing type
             listing_type = self.determine_listing_type(item)
             
+            # Extract category
+            category = self.extract_category(item)
+            
             # Build listing data
             listing_data = {
                 'market': 'yahoo',
@@ -357,7 +418,8 @@ class YahooScraper(BaseScraper):
                 'url': link,
                 'image_url': image_url,
                 'listing_type': listing_type,
-                'seller_id': seller_id
+                'seller_id': seller_id,
+                'category': category
             }
             
             return listing_data
@@ -411,6 +473,12 @@ class YahooScraper(BaseScraper):
                 listing_brand = listing_data.get('brand', brand)
                 if is_blacklisted(title, listing_brand):
                     logger.debug(f"⏭️  Skipping blacklisted item: {title[:50]}")
+                    continue  # Skip this listing
+                
+                # Check category filter
+                listing_category = listing_data.get('category')
+                if should_exclude_category(listing_category):
+                    logger.debug(f"⏭️  Skipping excluded category: {listing_category}")
                     continue  # Skip this listing
                 
                 listings.append(listing_data)
@@ -590,6 +658,7 @@ class YahooScraper(BaseScraper):
                     image_url=listing_data.get('image_url'),
                     listing_type=listing_data['listing_type'],
                     seller_id=listing_data.get('seller_id'),
+                    category=listing_data.get('category'),
                     first_seen=datetime.now(timezone.utc),
                     last_seen=datetime.now(timezone.utc)
                 )
