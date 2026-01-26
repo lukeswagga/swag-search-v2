@@ -36,9 +36,11 @@ export async function checkDiscordRole(
     }
 
     const guilds = await guildsResponse.json();
+    console.log('User guilds:', guilds.map((g: any) => ({ id: g.id, name: g.name })));
 
     // Check if user is in your server
     const inServer = guilds.some((guild: any) => guild.id === YOUR_SERVER_ID);
+    console.log('User in server?', inServer, 'Server ID:', YOUR_SERVER_ID);
 
     if (!inServer) {
       return { hasAccess: false, reason: 'not_in_server' };
@@ -65,15 +67,23 @@ export async function checkDiscordRole(
 
     const member = await memberResponse.json();
     const roles = member.roles || [];
+    
+    console.log('Guild member data:', {
+      userId,
+      memberRoles: roles,
+      requiredRoleId: INSTANT_ROLE_ID,
+      allRoles: member.roles,
+    });
 
     // Check if user has required role
     const hasRole = roles.includes(INSTANT_ROLE_ID);
     
-    console.log('Role check:', {
+    console.log('Final role check result:', {
       userId,
-      roles,
+      userRoles: roles,
       requiredRoleId: INSTANT_ROLE_ID,
       hasRole,
+      roleMatch: roles.includes(INSTANT_ROLE_ID),
     });
 
     return {

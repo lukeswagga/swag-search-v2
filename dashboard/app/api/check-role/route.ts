@@ -43,11 +43,14 @@ export async function GET(request: NextRequest) {
     }
 
     // Check Discord role
+    console.log('Starting Discord role check for user:', session.user.id);
     const result = await checkDiscordRole(
       token.accessToken,
       session.user.id,
       'Instant'
     );
+    
+    console.log('Role check result:', JSON.stringify(result, null, 2));
 
     return NextResponse.json(result);
   } catch (error) {
