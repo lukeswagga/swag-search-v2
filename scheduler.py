@@ -25,6 +25,7 @@ from discord_notifier import DiscordNotifier
 from discord_bot import SwagSearchBot
 from database import init_database, create_tables, save_listings_batch, close_database, get_active_filters, record_alert_sent, was_alert_sent, get_listings_since
 from filter_matcher import FilterMatcher
+from cleanup import cleanup_old_listings
 
 # Configure logging
 logging.basicConfig(
@@ -567,8 +568,20 @@ class ScraperScheduler:
             print(f"Channel ID: ❌ Not set (set DISCORD_CHANNEL_ID for channel alerts)")
         print(f"{'='*60}\n")
         
+        # Track last cleanup time
+        last_cleanup = datetime.now()
+        
         try:
             while not self._should_stop:
+                # Run cleanup once per day
+                if (datetime.now() - last_cleanup).total_seconds() > 86400:  # 24 hours
+                    logger.info("🧹 Running daily database cleanup...")
+                    try:
+                        await cleanup_old_listings()
+                        last_cleanup = datetime.now()
+                    except Exception as e:
+                        logger.error(f"❌ Cleanup failed: {e}", exc_info=True)
+                
                 # Split brands into batches
                 total_cycles = (len(all_brands) + brands_per_cycle - 1) // brands_per_cycle
                 
