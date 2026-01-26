@@ -61,7 +61,12 @@ export const authOptions: NextAuthOptions = {
         token.id = user.id;
       }
       if (account) {
+        // Store the access token from Discord OAuth
         token.accessToken = account.access_token;
+        console.log('JWT callback: Stored access token', { 
+          hasToken: !!account.access_token,
+          tokenLength: account.access_token?.length 
+        });
       }
       return token;
     },

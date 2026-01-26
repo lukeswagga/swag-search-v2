@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth/next';
 import { getToken } from 'next-auth/jwt';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { checkDiscordRole } from '@/lib/discord';
+import { cookies } from 'next/headers';
 
 export async function GET(request: NextRequest) {
   try {
@@ -16,18 +17,33 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    // Get cookies for token retrieval
+    const cookieStore = await cookies();
+    const allCookies = cookieStore.getAll();
+    const cookieHeader = allCookies.map(c => `${c.name}=${c.value}`).join('; ');
+    
     // Get the access token from JWT
-    // Convert NextRequest to format getToken expects
+    // Build proper request object with cookies
     const token = await getToken({ 
       req: {
-        headers: Object.fromEntries(request.headers.entries()),
+        headers: {
+          cookie: cookieHeader,
+        },
+        url: request.url,
       } as any,
       secret: process.env.NEXTAUTH_SECRET 
     });
 
+    console.log('Token check:', {
+      hasToken: !!token,
+      hasAccessToken: !!token?.accessToken,
+      tokenKeys: token ? Object.keys(token) : [],
+    });
+
     if (!token || !token.accessToken || typeof token.accessToken !== 'string') {
+      console.error('Missing access token in JWT');
       return NextResponse.json(
-        { hasAccess: false, reason: 'not_authenticated' },
+        { hasAccess: false, reason: 'not_authenticated', details: 'Access token not found in session' },
         { status: 401 }
       );
     }
