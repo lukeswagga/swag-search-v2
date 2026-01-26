@@ -29,8 +29,45 @@ To learn more about Next.js, take a look at the following resources:
 
 You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
 
+## Environment Variables
+
+Required environment variables for Discord OAuth and role verification:
+
+```bash
+# Discord OAuth (already configured)
+DISCORD_CLIENT_ID=your_discord_client_id
+DISCORD_CLIENT_SECRET=your_discord_client_secret
+
+# Discord Role Verification (NEW - required for feed access)
+DISCORD_GUILD_ID=your_discord_server_id
+DISCORD_BOT_TOKEN=your_discord_bot_token
+DISCORD_INSTANT_ROLE_ID=your_instant_role_id
+
+# NextAuth
+NEXTAUTH_SECRET=your_nextauth_secret
+NEXTAUTH_URL=http://localhost:3000  # or your production URL
+
+# API
+NEXT_PUBLIC_API_URL=https://web-production-0bd84.up.railway.app
+```
+
+### Getting Discord Role ID
+
+1. Enable Developer Mode in Discord (User Settings > Advanced > Developer Mode)
+2. Right-click on the "Instant" role in your Discord server
+3. Click "Copy ID" - this is your `DISCORD_INSTANT_ROLE_ID`
+
+### Discord Bot Setup
+
+Your Discord bot needs:
+- `GUILD_MEMBERS` intent enabled in Discord Developer Portal
+- Bot must be in your server with appropriate permissions
+- Bot token from Discord Developer Portal
+
 ## Deploy on Vercel
 
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+
+**Important:** Make sure to add all environment variables in Vercel's project settings before deploying.

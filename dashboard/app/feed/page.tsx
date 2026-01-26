@@ -101,6 +101,46 @@ function SkeletonCard() {
   );
 }
 
+function LoadingScreen() {
+  return (
+    <div className="min-h-screen bg-white flex items-center justify-center">
+      <div className="text-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900 mx-auto mb-4"></div>
+        <p className="text-gray-600">Verifying access...</p>
+      </div>
+    </div>
+  );
+}
+
+function UpgradePrompt() {
+  return (
+    <div className="min-h-screen bg-white flex items-center justify-center px-4">
+      <div className="max-w-md text-center">
+        <h1 className="font-serif text-4xl text-gray-900 mb-4">
+          Upgrade Required
+        </h1>
+        <p className="text-gray-600 mb-8">
+          Access to the live feed requires the Instant tier subscription.
+        </p>
+        <div className="space-y-3">
+          <a
+            href="https://whop.com/swagsearch"
+            className="block w-full bg-gray-900 text-white py-3 px-6 rounded-md hover:bg-gray-800 transition-colors font-medium"
+          >
+            Upgrade to Instant ($30/mo)
+          </a>
+          <a
+            href="/"
+            className="block text-gray-600 hover:text-gray-900"
+          >
+            Back to home
+          </a>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function FeedPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
@@ -116,8 +156,37 @@ export default function FeedPage() {
   const [lastUpdate, setLastUpdate] = useState<Date>(new Date());
   const [error, setError] = useState<string | null>(null);
   const [selectedListing, setSelectedListing] = useState<Listing | null>(null);
+  const [hasAccess, setHasAccess] = useState<boolean | null>(null);
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://web-production-0bd84.up.railway.app';
+
+  // Check Discord role access
+  useEffect(() => {
+    async function verifyAccess() {
+      if (status !== 'authenticated' || !session?.user?.id) {
+        return;
+      }
+
+      try {
+        const response = await fetch('/api/check-role');
+        if (!response.ok) {
+          throw new Error('Failed to check role');
+        }
+        const result = await response.json();
+        setHasAccess(result.hasAccess);
+
+        if (!result.hasAccess) {
+          // Log why access denied for debugging
+          console.log('Access denied:', result.reason);
+        }
+      } catch (error) {
+        console.error('Error verifying Discord access:', error);
+        setHasAccess(false);
+      }
+    }
+
+    verifyAccess();
+  }, [session, status]);
 
   // Redirect if not authenticated
   useEffect(() => {
@@ -229,22 +298,19 @@ export default function FeedPage() {
     setMarket('all');
   };
 
-  if (status === 'loading') {
-    return (
-      <div className="min-h-screen bg-white">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {[...Array(12)].map((_, i) => (
-              <SkeletonCard key={i} />
-            ))}
-          </div>
-        </div>
-      </div>
-    );
+  // Show loading while checking authentication or access
+  if (status === 'loading' || hasAccess === null) {
+    return <LoadingScreen />;
   }
 
+  // Redirect to login if not authenticated
   if (status === 'unauthenticated') {
     return null;
+  }
+
+  // Show upgrade prompt if no access
+  if (!hasAccess) {
+    return <UpgradePrompt />;
   }
 
   return (
