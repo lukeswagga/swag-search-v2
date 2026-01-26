@@ -44,56 +44,53 @@ async def cleanup_old_listings():
                 keep_cutoff = result.scalar()
                 
                 if keep_cutoff:
-                    # First, find all listing IDs that will be deleted
-                    listings_to_delete_query = select(Listing.id).where(Listing.first_seen < keep_cutoff)
-                    result = await session.execute(listings_to_delete_query)
-                    listing_ids_to_delete = [row[0] for row in result.fetchall()]
-                    
-                    if listing_ids_to_delete:
-                        # Delete related alerts_sent records first
-                        alerts_deleted = await session.execute(
-                            delete(AlertSent).where(AlertSent.listing_id.in_(listing_ids_to_delete))
+                    # Delete alerts_sent records using subquery (more efficient, avoids parameter limit)
+                    # Use raw SQL with USING clause for better performance
+                    from sqlalchemy import text
+                    alerts_sql = text("""
+                        DELETE FROM alerts_sent
+                        WHERE listing_id IN (
+                            SELECT id FROM listings
+                            WHERE first_seen < :cutoff
                         )
-                        logger.info(f"🗑️  Deleted {alerts_deleted.rowcount} related alert records")
-                        
-                        # Now delete the listings
-                        delete_query = delete(Listing).where(Listing.first_seen < keep_cutoff)
-                        result = await session.execute(delete_query)
-                        await session.commit()
-                        
-                        logger.info(f"🗑️  Deleted {result.rowcount} listings (keeping newest 50,000)")
-                        return result.rowcount
-                    else:
-                        logger.info("ℹ️  No listings to delete")
-                        return 0
+                    """)
+                    alerts_result = await session.execute(alerts_sql, {"cutoff": keep_cutoff})
+                    alerts_count = alerts_result.rowcount
+                    logger.info(f"🗑️  Deleted {alerts_count} related alert records")
+                    
+                    # Now delete the listings
+                    delete_query = delete(Listing).where(Listing.first_seen < keep_cutoff)
+                    result = await session.execute(delete_query)
+                    await session.commit()
+                    
+                    logger.info(f"🗑️  Deleted {result.rowcount} listings (keeping newest 50,000)")
+                    return result.rowcount
                 else:
                     # Fallback: shouldn't happen, but if it does, use 7-day strategy
                     logger.warning("⚠️  Could not determine 50k cutoff, falling back to 7-day cleanup")
             
             # Strategy 2: Delete items older than 7 days
-            # First, find all listing IDs that will be deleted
-            listings_to_delete_query = select(Listing.id).where(Listing.first_seen < cutoff_date)
-            result = await session.execute(listings_to_delete_query)
-            listing_ids_to_delete = [row[0] for row in result.fetchall()]
-            
-            if listing_ids_to_delete:
-                # Delete related alerts_sent records first
-                alerts_deleted = await session.execute(
-                    delete(AlertSent).where(AlertSent.listing_id.in_(listing_ids_to_delete))
+            # Delete alerts_sent records using raw SQL with subquery (avoids parameter limit)
+            from sqlalchemy import text
+            alerts_sql = text("""
+                DELETE FROM alerts_sent
+                WHERE listing_id IN (
+                    SELECT id FROM listings
+                    WHERE first_seen < :cutoff
                 )
-                logger.info(f"🗑️  Deleted {alerts_deleted.rowcount} related alert records")
-                
-                # Now delete the listings
-                delete_query = delete(Listing).where(Listing.first_seen < cutoff_date)
-                result = await session.execute(delete_query)
-                await session.commit()
-                
-                deleted_count = result.rowcount
-                logger.info(f"🗑️  Deleted {deleted_count} listings older than 7 days")
-                return deleted_count
-            else:
-                logger.info("ℹ️  No listings to delete")
-                return 0
+            """)
+            alerts_result = await session.execute(alerts_sql, {"cutoff": cutoff_date})
+            alerts_count = alerts_result.rowcount
+            logger.info(f"🗑️  Deleted {alerts_count} related alert records")
+            
+            # Now delete the listings
+            delete_query = delete(Listing).where(Listing.first_seen < cutoff_date)
+            result = await session.execute(delete_query)
+            await session.commit()
+            
+            deleted_count = result.rowcount
+            logger.info(f"🗑️  Deleted {deleted_count} listings older than 7 days")
+            return deleted_count
                 
     except Exception as e:
         logger.error(f"❌ Cleanup failed: {e}", exc_info=True)
