@@ -11,6 +11,8 @@ interface DiscordProfile extends Profile {
 }
 
 export const authOptions: NextAuthOptions = {
+  // Set the base URL for OAuth callbacks
+  url: process.env.NEXTAUTH_URL,
   providers: [
     DiscordProvider({
       clientId: process.env.DISCORD_CLIENT_ID!,
