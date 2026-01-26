@@ -179,6 +179,10 @@ export default function FeedPage() {
         if (!result.hasAccess) {
           // Log why access denied for debugging
           console.log('Access denied:', result.reason);
+          console.log('Session user ID:', session.user.id);
+          console.log('Check ADMIN_DISCORD_IDS in Vercel environment variables');
+        } else {
+          console.log('Access granted!');
         }
       } catch (error) {
         console.error('Error verifying Discord access:', error);

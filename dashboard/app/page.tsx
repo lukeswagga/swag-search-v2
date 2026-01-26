@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { signIn, useSession } from 'next-auth/react';
+import { signIn, signOut, useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 
@@ -10,6 +10,7 @@ export default function Home() {
   const router = useRouter();
 
   const handleBrowseFeed = () => {
+    console.log('Browse feed clicked, status:', status, 'session:', session?.user?.id);
     if (status === 'authenticated') {
       router.push('/feed');
     } else {
