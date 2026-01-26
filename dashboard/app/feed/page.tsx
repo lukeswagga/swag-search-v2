@@ -196,6 +196,7 @@ export default function FeedPage() {
   const [selectedListing, setSelectedListing] = useState<Listing | null>(null);
   const [hasAccess, setHasAccess] = useState<boolean | null>(null);
   const [accessReason, setAccessReason] = useState<string | null>(null);
+  const [newItemsCount, setNewItemsCount] = useState(0);
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://web-production-0bd84.up.railway.app';
 
@@ -314,6 +315,17 @@ export default function FeedPage() {
       if (append) {
         setListings(prev => [...prev, ...data.listings]);
       } else {
+        // Check if we have new items (first item has different ID)
+        if (listings.length > 0 && data.listings.length > 0 && data.listings[0].id !== listings[0].id) {
+          // Count how many new items
+          const newCount = data.listings.findIndex(
+            item => item.id === listings[0].id
+          );
+          if (newCount > 0) {
+            setNewItemsCount(newCount);
+            setTimeout(() => setNewItemsCount(0), 5000); // Clear after 5 seconds
+          }
+        }
         setListings(data.listings || []);
       }
       
@@ -392,6 +404,13 @@ export default function FeedPage() {
 
   return (
     <div className="min-h-screen bg-white">
+      {/* Toast Notification */}
+      {newItemsCount > 0 && (
+        <div className="fixed top-4 right-4 z-50 bg-green-600 text-white px-6 py-3 rounded-lg shadow-lg animate-slide-in">
+          🔔 {newItemsCount} new {newItemsCount === 1 ? 'item' : 'items'}
+        </div>
+      )}
+      
       {/* Top Nav */}
       <nav className="border-b border-gray-200 bg-white sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">

@@ -585,6 +585,40 @@ async def get_recent_feed(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# Get feed status (NEW - timestamp of most recent listing)
+@app.get("/api/feed/status")
+async def get_feed_status():
+    """
+    Returns timestamp of most recent listing.
+    Frontend uses this to detect when new items arrive.
+    """
+    try:
+        from database import _session_factory
+        from models import Listing
+        from sqlalchemy import select, func
+        
+        async with _session_factory() as session:
+            # Get most recent listing timestamp
+            query = select(func.max(Listing.first_seen))
+            result = await session.execute(query)
+            latest_timestamp = result.scalar()
+            
+            # Get total count
+            count_query = select(func.count(Listing.id))
+            count_result = await session.execute(count_query)
+            total_count = count_result.scalar()
+            
+            return {
+                "latest_timestamp": latest_timestamp.isoformat() if latest_timestamp else None,
+                "total_listings": total_count,
+                "server_time": datetime.utcnow().isoformat()
+            }
+            
+    except Exception as e:
+        logger.error(f"❌ Error getting feed status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # Get single listing detail (NEW - detail view)
 @app.get("/api/listings/{listing_id}")
 async def get_listing_detail(
@@ -664,6 +698,7 @@ async def root():
             "feed": "/api/feed",
             "search": "/api/feed/search",
             "recent": "/api/feed/recent",
+            "feed_status": "/api/feed/status",
             "listing_detail": "/api/listings/{id}",
             "brands": "/api/brands"
         }
