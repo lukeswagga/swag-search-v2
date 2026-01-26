@@ -57,16 +57,23 @@ export const authOptions: NextAuthOptions = {
       return session;
     },
     async jwt({ token, user, account, profile }) {
-      if (user) {
+      // Initial sign in - store user ID and access token
+      if (account && user) {
         token.id = user.id;
-      }
-      if (account) {
-        // Store the access token from Discord OAuth
         token.accessToken = account.access_token;
-        console.log('JWT callback: Stored access token', { 
-          hasToken: !!account.access_token,
-          tokenLength: account.access_token?.length 
+        console.log('JWT callback: Initial sign in', { 
+          userId: user.id,
+          hasAccessToken: !!account.access_token,
+          provider: account.provider
         });
+      }
+      // Subsequent requests - preserve existing access token and user ID
+      else if (user) {
+        token.id = user.id;
+        // Keep existing accessToken if it exists
+        if (!token.accessToken) {
+          console.warn('JWT callback: Access token missing on subsequent request');
+        }
       }
       return token;
     },

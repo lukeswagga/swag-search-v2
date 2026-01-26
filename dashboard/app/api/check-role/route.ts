@@ -17,13 +17,26 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Get cookies for token retrieval
+    // Get cookies for token retrieval - try both cookie names
     const cookieStore = await cookies();
+    const sessionCookie = cookieStore.get('next-auth.session-token') || 
+                         cookieStore.get('__Secure-next-auth.session-token') ||
+                         cookieStore.get('authjs.session-token') ||
+                         cookieStore.get('__Secure-authjs.session-token');
+    
+    if (!sessionCookie) {
+      console.error('No session cookie found');
+      return NextResponse.json(
+        { hasAccess: false, reason: 'not_authenticated', details: 'No session cookie' },
+        { status: 401 }
+      );
+    }
+    
+    // Build cookie header
     const allCookies = cookieStore.getAll();
     const cookieHeader = allCookies.map(c => `${c.name}=${c.value}`).join('; ');
     
     // Get the access token from JWT
-    // Build proper request object with cookies
     const token = await getToken({ 
       req: {
         headers: {
@@ -38,6 +51,7 @@ export async function GET(request: NextRequest) {
       hasToken: !!token,
       hasAccessToken: !!token?.accessToken,
       tokenKeys: token ? Object.keys(token) : [],
+      userId: token?.sub || token?.id,
     });
 
     if (!token || !token.accessToken || typeof token.accessToken !== 'string') {
