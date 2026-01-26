@@ -81,6 +81,42 @@ ALL_BRANDS = [
     "Yohji Yamamoto"
 ]
 
+# Curated brands for frontend display only (not used by scrapers)
+CURATED_BRANDS = [
+    "Hedi Slimane",
+    "Saint Laurent",
+    "Dolce & Gabbana",
+    "14th Addiction",
+    "Chanel",
+    "Balmain",
+    "Dior",
+    "LGB",
+    "Thom Browne",
+    "Sacai",
+    "Doublet",
+    "Takahiromiyashita The Soloist",
+    "Number Nine",
+    "Issey Miyake",
+    "Yohji Yamamoto",
+    "Jean Paul Gaultier",
+    "Undercover",
+    "Rick Owens",
+    "Raf Simons",
+    "Prada",
+    "Martine Rose",
+    "Maison Margiela",
+    "Kiko Kostadinov",
+    "Junya Watanabe",
+    "Hysteric Glamour",
+    "Helmut Lang",
+    "Comme Des Garcons",
+    "Chrome Hearts",
+    "Bottega Veneta",
+    "Balenciaga",
+    "Alyx",
+    "Vetements"
+]
+
 BRANDS_PER_CYCLE = 3  # Scrape 3 brands per cycle
 CYCLE_DELAY_SECONDS = 10  # Short delay between cycles (10 seconds)
 

@@ -3,7 +3,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
-import { Slider } from '@/components/ui/slider';
 
 interface Brand {
   name: string;
@@ -51,59 +50,42 @@ function getZenMarketLink(listing: Listing): string {
   return listing.listing_url;
 }
 
-function ListingCard({ listing }: { listing: Listing }) {
+function ListingCard({ listing, onClick }: { listing: Listing; onClick: () => void }) {
   const [imageError, setImageError] = useState(false);
 
   return (
-    <div className="bg-gray-800 rounded-lg overflow-hidden hover:ring-2 hover:ring-indigo-500 transition">
-      <img 
-        src={imageError || !listing.image_url ? '/placeholder.png' : listing.image_url}
-        alt={listing.title}
-        className="w-full h-64 object-cover"
-        onError={() => setImageError(true)}
-      />
-      <div className="p-4">
-        <h3 className="text-white font-medium mb-2 line-clamp-2">
+    <div 
+      className="group cursor-pointer"
+      onClick={onClick}
+    >
+      {/* Image Container */}
+      <div className="relative aspect-[3/4] bg-gray-100 overflow-hidden mb-3 rounded-lg">
+        <img
+          src={imageError || !listing.image_url ? '/placeholder.png' : listing.image_url}
+          alt={listing.title}
+          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+          onError={() => setImageError(true)}
+        />
+        {/* Market Badge */}
+        <div className="absolute top-2 right-2 bg-white/90 backdrop-blur-sm px-2 py-1 rounded text-xs font-medium text-gray-700">
+          {listing.market === 'yahoo' ? 'Yahoo JP' : 'Mercari'}
+        </div>
+      </div>
+
+      {/* Product Info */}
+      <div className="space-y-1">
+        <h3 className="text-sm font-medium text-gray-900 line-clamp-2 group-hover:underline">
           {listing.title}
         </h3>
-        <div className="flex items-baseline gap-2 mb-2">
-          <span className="text-2xl font-bold text-green-400">
-            ${listing.price_usd.toFixed(0)}
-          </span>
-          <span className="text-gray-400">
-            ¥{listing.price_jpy.toLocaleString()}
-          </span>
-        </div>
-        <div className="text-sm text-gray-400 mb-3">
-          {listing.market === 'yahoo' ? 'Yahoo JP' : 'Mercari'} • {timeAgo(listing.first_seen)}
-        </div>
-        <div className="flex gap-2">
-          <a 
-            href={listing.listing_url} 
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white py-2 text-center rounded transition-colors"
-          >
-            View
-          </a>
-          <a 
-            href={getZenMarketLink(listing)}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex-1 bg-gray-700 hover:bg-gray-600 text-white py-2 text-center rounded transition-colors"
-          >
-            ZenMarket
-          </a>
-          <a 
-            href={`https://lens.google.com/uploadbyurl?url=${encodeURIComponent(listing.image_url || '')}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="bg-gray-700 hover:bg-gray-600 text-white py-2 px-3 rounded transition-colors"
-            title="Google Lens"
-          >
-            🔍
-          </a>
-        </div>
+        <p className="text-lg font-semibold text-gray-900">
+          ${listing.price_usd.toFixed(0)}
+        </p>
+        <p className="text-xs text-gray-500">
+          ¥{listing.price_jpy.toLocaleString()}
+        </p>
+        <p className="text-xs text-gray-400">
+          {timeAgo(listing.first_seen)}
+        </p>
       </div>
     </div>
   );
@@ -111,18 +93,10 @@ function ListingCard({ listing }: { listing: Listing }) {
 
 function SkeletonCard() {
   return (
-    <div className="bg-gray-800 rounded-lg overflow-hidden animate-pulse">
-      <div className="w-full h-64 bg-gray-700" />
-      <div className="p-4">
-        <div className="h-4 bg-gray-700 rounded mb-2" />
-        <div className="h-6 bg-gray-700 rounded w-24 mb-2" />
-        <div className="h-3 bg-gray-700 rounded w-32 mb-3" />
-        <div className="flex gap-2">
-          <div className="flex-1 h-8 bg-gray-700 rounded" />
-          <div className="flex-1 h-8 bg-gray-700 rounded" />
-          <div className="w-8 h-8 bg-gray-700 rounded" />
-        </div>
-      </div>
+    <div className="animate-pulse">
+      <div className="aspect-[3/4] bg-gray-200 rounded-lg mb-3"></div>
+      <div className="h-4 bg-gray-200 rounded w-3/4 mb-2"></div>
+      <div className="h-4 bg-gray-200 rounded w-1/2"></div>
     </div>
   );
 }
@@ -141,6 +115,7 @@ export default function FeedPage() {
   const [total, setTotal] = useState(0);
   const [lastUpdate, setLastUpdate] = useState<Date>(new Date());
   const [error, setError] = useState<string | null>(null);
+  const [selectedListing, setSelectedListing] = useState<Listing | null>(null);
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://web-production-0bd84.up.railway.app';
 
@@ -221,16 +196,17 @@ export default function FeedPage() {
     }
   }, [selectedBrands, priceRange, market, status, session, fetchListings]);
 
-  // Auto-refresh every 30 seconds
+  // Auto-refresh every 30 seconds to show new listings
   useEffect(() => {
     if (status !== 'authenticated' || !session?.user?.id) return;
 
     const interval = setInterval(() => {
+      // Refetch page 1 to get newest items
       fetchListings(1, false);
-    }, 30000);
+    }, 30000); // 30 seconds
     
     return () => clearInterval(interval);
-  }, [status, session, fetchListings]);
+  }, [selectedBrands, priceRange, market]); // Re-run if filters change
 
   const loadMore = () => {
     if (loading) return;
@@ -255,10 +231,10 @@ export default function FeedPage() {
 
   if (status === 'loading') {
     return (
-      <div className="min-h-screen bg-gray-900 text-white">
+      <div className="min-h-screen bg-white">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {[...Array(6)].map((_, i) => (
+          <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            {[...Array(12)].map((_, i) => (
               <SkeletonCard key={i} />
             ))}
           </div>
@@ -272,155 +248,269 @@ export default function FeedPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white">
-      {/* Live Indicator Banner */}
-      <div className="bg-gray-800 px-6 py-3 flex items-center justify-between sticky top-0 z-10 border-b border-gray-700">
-        <div className="flex items-center gap-2">
-          <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
-          <span className="text-white font-medium">LIVE</span>
-          <span className="text-gray-400">• {total.toLocaleString()} items</span>
-        </div>
-        <span className="text-gray-400 text-sm">
-          Updated {timeAgo(lastUpdate.toISOString())}
-        </span>
-      </div>
-
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        {/* Brand Selector */}
-        <div className="mb-6">
-          <h2 className="text-sm font-medium text-gray-400 mb-3">Brands</h2>
-          <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-            {brands.map(brand => (
-              <button
-                key={brand.name}
-                onClick={() => toggleBrand(brand.name)}
-                className={`
-                  px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors
-                  ${selectedBrands.includes(brand.name)
-                    ? 'bg-indigo-600 text-white'
-                    : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
-                  }
-                `}
-              >
-                {brand.name} ({brand.count})
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Price Range Slider */}
-        <div className="mb-6">
-          <h2 className="text-sm font-medium text-gray-400 mb-3">Price Range</h2>
-          <div className="px-2">
-            <Slider
-              min={0}
-              max={1000}
-              step={10}
-              value={priceRange}
-              onValueChange={(value) => setPriceRange(value as [number, number])}
-              className="w-full"
-            />
-            <div className="flex justify-between text-sm text-gray-400 mt-2">
-              <span>${priceRange[0]}</span>
-              <span>${priceRange[1]}</span>
+    <div className="min-h-screen bg-white">
+      {/* Top Nav */}
+      <nav className="border-b border-gray-200 bg-white sticky top-0 z-50">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+          <div className="flex items-center justify-between">
+            <h1 className="text-2xl font-serif text-gray-900">SwagSearch</h1>
+            <div className="flex items-center gap-2 text-sm text-gray-600">
+              <span className="w-2 h-2 bg-green-500 rounded-full"></span>
+              <span>Live • {total.toLocaleString()} items</span>
             </div>
           </div>
         </div>
+      </nav>
 
-        {/* Market Selector */}
-        <div className="mb-6">
-          <h2 className="text-sm font-medium text-gray-400 mb-3">Market</h2>
-          <div className="flex gap-4">
-            {['all', 'yahoo', 'mercari'].map(m => (
-              <label key={m} className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="radio"
-                  name="market"
-                  checked={market === m}
-                  onChange={() => setMarket(m)}
-                  className="w-4 h-4 text-indigo-600 bg-gray-800 border-gray-600 focus:ring-indigo-500"
-                />
-                <span className="text-gray-300">
-                  {m === 'all' ? 'All' : m === 'yahoo' ? 'Yahoo JP' : 'Mercari'}
-                </span>
+      {/* Filters Section */}
+      <div className="border-b border-gray-200 bg-gray-50">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+          <div className="space-y-4">
+            {/* Brand Filter */}
+            <div>
+              <label className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2 block">
+                Designers
               </label>
-            ))}
+              <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+                {brands.map(brand => (
+                  <button
+                    key={brand.name}
+                    onClick={() => toggleBrand(brand.name)}
+                    className={`
+                      px-4 py-2 text-sm font-medium whitespace-nowrap rounded-md transition-all
+                      ${selectedBrands.includes(brand.name)
+                        ? 'bg-gray-900 text-white'
+                        : 'bg-white border border-gray-300 text-gray-700 hover:border-gray-900'
+                      }
+                    `}
+                  >
+                    {brand.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Price Range, Market, Sort */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {/* Price Range */}
+              <div>
+                <label className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2 block">
+                  Price Range
+                </label>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="number"
+                    placeholder="Min"
+                    value={priceRange[0] || ''}
+                    onChange={(e) => setPriceRange([Number(e.target.value) || 0, priceRange[1]])}
+                    className="w-24 px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-1 focus:ring-gray-900 focus:border-gray-900 outline-none"
+                  />
+                  <span className="text-gray-400">—</span>
+                  <input
+                    type="number"
+                    placeholder="Max"
+                    value={priceRange[1] || ''}
+                    onChange={(e) => setPriceRange([priceRange[0], Number(e.target.value) || 1000])}
+                    className="w-24 px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-1 focus:ring-gray-900 focus:border-gray-900 outline-none"
+                  />
+                </div>
+              </div>
+
+              {/* Market Filter */}
+              <div>
+                <label className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2 block">
+                  Source
+                </label>
+                <select
+                  value={market}
+                  onChange={(e) => setMarket(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-1 focus:ring-gray-900 focus:border-gray-900 outline-none bg-white"
+                >
+                  <option value="all">All Sources</option>
+                  <option value="yahoo">Yahoo Japan</option>
+                  <option value="mercari">Mercari</option>
+                </select>
+              </div>
+
+              {/* Sort */}
+              <div>
+                <label className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2 block">
+                  Sort By
+                </label>
+                <select 
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-1 focus:ring-gray-900 focus:border-gray-900 outline-none bg-white"
+                  defaultValue="newest"
+                >
+                  <option value="newest">Newest</option>
+                  <option value="price_low">Price: Low to High</option>
+                  <option value="price_high">Price: High to Low</option>
+                </select>
+              </div>
+            </div>
           </div>
         </div>
+      </div>
 
+      {/* Results Grid */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Error State */}
         {error && (
-          <div className="mb-6 bg-red-900/20 border border-red-500 rounded-lg p-4">
-            <p className="text-red-400">{error}</p>
+          <div className="mb-6 bg-red-50 border border-red-200 rounded-lg p-4">
+            <p className="text-red-600 text-sm">{error}</p>
             <button
               onClick={() => fetchListings(1, false)}
-              className="mt-2 text-red-400 hover:text-red-300 underline"
+              className="mt-2 text-red-600 hover:text-red-700 underline text-sm"
             >
               Try again
             </button>
           </div>
         )}
 
-        {/* Results Header */}
-        <div className="mb-4">
-          <h2 className="text-lg font-semibold text-white">
-            Showing {listings.length} {listings.length === 1 ? 'result' : 'results'}
-          </h2>
-        </div>
-
         {/* Empty State */}
         {listings.length === 0 && !loading && (
           <div className="text-center py-20">
-            <p className="text-gray-400 text-lg mb-4">
-              No listings found with current filters
-            </p>
-            <button 
-              onClick={clearFilters}
-              className="text-indigo-400 hover:text-indigo-300 underline"
-            >
-              Clear filters
-            </button>
+            <div className="max-w-md mx-auto">
+              <p className="text-2xl font-serif text-gray-900 mb-2">
+                No items found
+              </p>
+              <p className="text-gray-600 mb-6">
+                Try adjusting your filters or browse all designers
+              </p>
+              <button
+                onClick={clearFilters}
+                className="px-6 py-2 bg-gray-900 text-white rounded-md hover:bg-gray-800 transition-colors font-medium"
+              >
+                Clear All Filters
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Loading Skeleton */}
+        {loading && listings.length === 0 && (
+          <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            {[...Array(12)].map((_, i) => (
+              <SkeletonCard key={i} />
+            ))}
           </div>
         )}
 
         {/* Listings Grid */}
         {listings.length > 0 && (
           <>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+            <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 mb-8">
               {listings.map((listing) => (
-                <ListingCard key={listing.id} listing={listing} />
+                <ListingCard 
+                  key={listing.id} 
+                  listing={listing}
+                  onClick={() => setSelectedListing(listing)}
+                />
               ))}
             </div>
 
             {/* Load More Button */}
-            {loading ? (
-              <div className="text-center py-8">
-                <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
-                <p className="text-gray-400 mt-2">Loading...</p>
-              </div>
-            ) : (
-              <div className="text-center py-8">
-                <button
-                  onClick={loadMore}
-                  disabled={loading}
-                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-3 px-8 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  Load More 100 Items
-                </button>
-              </div>
-            )}
+            <div className="flex justify-center mt-12">
+              <button
+                onClick={loadMore}
+                disabled={loading}
+                className="px-8 py-3 border-2 border-gray-900 text-gray-900 rounded-md hover:bg-gray-900 hover:text-white transition-all font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {loading ? 'Loading...' : `Load More (${total - listings.length} remaining)`}
+              </button>
+            </div>
           </>
         )}
-
-        {/* Loading Skeleton */}
-        {loading && listings.length === 0 && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {[...Array(6)].map((_, i) => (
-              <SkeletonCard key={i} />
-            ))}
-          </div>
-        )}
       </div>
+
+      {/* Detail Modal */}
+      {selectedListing && (
+        <div 
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 overflow-y-auto"
+          onClick={() => setSelectedListing(null)}
+        >
+          <div className="min-h-screen flex items-center justify-center p-4">
+            <div 
+              className="bg-white rounded-lg max-w-5xl w-full shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="grid md:grid-cols-2">
+                {/* Left: Image */}
+                <div className="bg-gray-100 p-8">
+                  <button
+                    onClick={() => setSelectedListing(null)}
+                    className="mb-4 text-gray-600 hover:text-gray-900 text-sm font-medium"
+                  >
+                    ← Back
+                  </button>
+                  <img
+                    src={selectedListing.image_url || '/placeholder.png'}
+                    alt={selectedListing.title}
+                    className="w-full rounded-lg"
+                  />
+                </div>
+
+                {/* Right: Details */}
+                <div className="p-8 space-y-6">
+                  <div>
+                    <h2 className="font-serif text-3xl text-gray-900 mb-2">
+                      {selectedListing.title}
+                    </h2>
+                    {selectedListing.brand && (
+                      <p className="text-sm text-gray-500 uppercase tracking-wide">
+                        {selectedListing.brand}
+                      </p>
+                    )}
+                  </div>
+
+                  <div>
+                    <p className="text-4xl font-bold text-gray-900">
+                      ${selectedListing.price_usd.toFixed(0)}
+                    </p>
+                    <p className="text-gray-500 mt-1">
+                      ¥{selectedListing.price_jpy.toLocaleString()}
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2 text-sm text-gray-600">
+                    <span className="px-3 py-1 bg-gray-100 rounded-full">
+                      {selectedListing.market === 'yahoo' ? 'Yahoo Japan Auction' : 'Mercari'}
+                    </span>
+                    <span>•</span>
+                    <span>Listed {timeAgo(selectedListing.first_seen)}</span>
+                  </div>
+
+                  <div className="space-y-3 pt-4">
+                    <a
+                      href={selectedListing.listing_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="block w-full bg-gray-900 text-white text-center py-3 px-6 rounded-md hover:bg-gray-800 transition-colors font-medium"
+                    >
+                      View Original Listing
+                    </a>
+                    <a
+                      href={getZenMarketLink(selectedListing)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="block w-full border-2 border-gray-900 text-gray-900 text-center py-3 px-6 rounded-md hover:bg-gray-50 transition-colors font-medium"
+                    >
+                      Buy via ZenMarket
+                    </a>
+                    <a
+                      href={`https://lens.google.com/uploadbyurl?url=${encodeURIComponent(selectedListing.image_url || '')}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="block w-full border border-gray-300 text-gray-700 text-center py-3 px-6 rounded-md hover:border-gray-900 transition-colors"
+                    >
+                      🔍 Reverse Image Search
+                    </a>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

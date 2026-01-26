@@ -698,19 +698,13 @@ async def search_listings_paginated(
             conditions = []
 
             if brand:
-                # Support pipe-separated brands (OR logic)
-                if '|' in brand:
-                    brand_list = [b.strip() for b in brand.split('|') if b.strip()]
-                    if brand_list:
-                        from sqlalchemy import or_
-                        brand_conditions = [
-                            func.lower(Listing.brand).like(f"%{b.lower()}%")
-                            for b in brand_list
-                        ]
-                        conditions.append(or_(*brand_conditions))
-                else:
-                    # Case-insensitive partial match for single brand
-                    conditions.append(func.lower(Listing.brand).like(f"%{brand.lower()}%"))
+                # If brand parameter provided (could be single or multiple)
+                brands = [b.strip() for b in brand.split('|') if b.strip()]  # Frontend sends "Rick Owens|Raf Simons"
+                if brands:  # Only add filter if we have valid brands
+                    # OR logic: match any of the selected brands
+                    from sqlalchemy import or_
+                    brand_filters = [Listing.brand.ilike(f'%{b}%') for b in brands]
+                    conditions.append(or_(*brand_filters))
 
             if min_price_jpy is not None:
                 conditions.append(Listing.price_jpy >= min_price_jpy)
@@ -802,19 +796,13 @@ async def get_recent_listings(
             conditions = []
 
             if brand:
-                # Support pipe-separated brands (OR logic)
-                if '|' in brand:
-                    brand_list = [b.strip() for b in brand.split('|') if b.strip()]
-                    if brand_list:
-                        from sqlalchemy import or_
-                        brand_conditions = [
-                            func.lower(Listing.brand).like(f"%{b.lower()}%")
-                            for b in brand_list
-                        ]
-                        conditions.append(or_(*brand_conditions))
-                else:
-                    # Case-insensitive partial match for single brand
-                    conditions.append(func.lower(Listing.brand).like(f"%{brand.lower()}%"))
+                # If brand parameter provided (could be single or multiple)
+                brands = [b.strip() for b in brand.split('|') if b.strip()]  # Frontend sends "Rick Owens|Raf Simons"
+                if brands:  # Only add filter if we have valid brands
+                    # OR logic: match any of the selected brands
+                    from sqlalchemy import or_
+                    brand_filters = [Listing.brand.ilike(f'%{b}%') for b in brands]
+                    conditions.append(or_(*brand_filters))
 
             if min_price_jpy is not None:
                 conditions.append(Listing.price_jpy >= min_price_jpy)
@@ -879,9 +867,14 @@ async def get_listing_by_id(listing_id: int) -> Optional[Listing]:
         return None
 
 
-async def get_brands_with_counts() -> List[Dict[str, any]]:
+async def get_brands_with_counts(limit: int = 30, min_count: int = 5) -> List[Dict[str, any]]:
     """
-    Get all distinct brands with their listing counts.
+    Get curated brands with their listing counts, filtered by whitelist.
+    Only returns brands from the curated brand list defined in config.
+    
+    Args:
+        limit: Maximum number of brands to return (default: 30, ignored if whitelist is smaller)
+        min_count: Minimum listing count to include (default: 5)
     
     Returns:
         List of dictionaries with 'name' and 'count' keys, sorted by count descending
@@ -890,31 +883,54 @@ async def get_brands_with_counts() -> List[Dict[str, any]]:
         raise ValueError("Database not initialized. Call init_database() first.")
     
     try:
+        # Import curated brands from config
+        try:
+            from config import CURATED_BRANDS
+        except ImportError:
+            # Fallback if config not available
+            CURATED_BRANDS = []
+        
+        if not CURATED_BRANDS:
+            logger.warning("⚠️  No curated brands found in config, returning empty list")
+            return []
+        
         async with _session_factory() as session:
-            from sqlalchemy import func
+            from sqlalchemy import func, case
             
-            # Query to get distinct brands with counts
-            query = (
-                select(
-                    Listing.brand,
-                    func.count(Listing.id).label('count')
+            # For each curated brand, count how many listings match it
+            # Match if database brand contains curated brand name (case-insensitive)
+            brands_with_counts = []
+            
+            for curated_brand in CURATED_BRANDS:
+                curated_lower = curated_brand.lower()
+                
+                # Count listings where brand field contains the curated brand name
+                count_query = (
+                    select(func.count(Listing.id))
+                    .where(Listing.brand.isnot(None))
+                    .where(Listing.brand != '')
+                    .where(func.lower(Listing.brand).like(f"%{curated_lower}%"))
                 )
-                .where(Listing.brand.isnot(None))
-                .where(Listing.brand != '')
-                .group_by(Listing.brand)
-                .order_by(func.count(Listing.id).desc())
-            )
+                
+                result = await session.execute(count_query)
+                count = result.scalar() or 0
+                
+                # Only include if count meets minimum threshold
+                if count >= min_count:
+                    brands_with_counts.append({
+                        "name": curated_brand,
+                        "count": count
+                    })
             
-            result = await session.execute(query)
-            rows = result.all()
+            # Sort by count descending
+            brands_with_counts.sort(key=lambda x: x["count"], reverse=True)
             
-            brands = [
-                {"name": row.brand, "count": row.count}
-                for row in rows
-            ]
+            # Apply limit
+            if limit:
+                brands_with_counts = brands_with_counts[:limit]
             
-            logger.info(f"Retrieved {len(brands)} brands with counts")
-            return brands
+            logger.info(f"Retrieved {len(brands_with_counts)} curated brands with counts (from {len(CURATED_BRANDS)} whitelist)")
+            return brands_with_counts
     
     except Exception as e:
         logger.error(f"❌ Error getting brands: {e}", exc_info=True)

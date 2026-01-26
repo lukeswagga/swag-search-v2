@@ -57,7 +57,7 @@ class BaseScraper(ABC):
         Args:
             title: Listing title
             brand_list: List of brand names to search for
-        
+            
         Returns:
             Brand name if found, None otherwise
         """

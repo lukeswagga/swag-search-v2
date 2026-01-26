@@ -630,15 +630,19 @@ async def get_listing_detail(
 
 # Get brands with counts (NEW - for brand selector)
 @app.get("/api/brands")
-async def get_brands():
+async def get_brands(
+    limit: int = Query(100, ge=1, le=100, description="Maximum number of brands to return"),
+    min_count: int = Query(0, ge=0, description="Minimum listing count to include")
+):
     """
-    Get all distinct brands with their listing counts.
+    Get curated brands with their listing counts.
+    Only returns brands from the curated brand whitelist.
     Used for the brand selector in the feed page.
     """
     try:
-        brands = await get_brands_with_counts()
+        brands = await get_brands_with_counts(limit=limit, min_count=min_count)
         
-        logger.info(f"✅ Retrieved {len(brands)} brands")
+        logger.info(f"✅ Retrieved {len(brands)} curated brands (limit={limit}, min_count={min_count})")
         return brands
     
     except Exception as e:
