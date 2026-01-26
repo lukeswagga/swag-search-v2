@@ -249,12 +249,23 @@ export default function FeedPage() {
   // Fetch brands on mount
   useEffect(() => {
     if (status === 'authenticated') {
-      fetch(`${apiUrl}/api/brands`)
-        .then(res => res.json())
-        .then(data => setBrands(data))
+      const brandsUrl = `${apiUrl}/api/brands`;
+      console.log('Fetching brands from:', brandsUrl);
+      fetch(brandsUrl)
+        .then(res => {
+          if (!res.ok) {
+            throw new Error(`Failed to fetch brands: ${res.status} ${res.statusText}`);
+          }
+          return res.json();
+        })
+        .then(data => {
+          console.log('Received brands:', data?.length || 0);
+          setBrands(Array.isArray(data) ? data : []);
+        })
         .catch(err => {
           console.error('Error fetching brands:', err);
-          setError('Failed to load brands');
+          setError('Failed to load brands. Listings may still work.');
+          setBrands([]); // Set empty array so UI doesn't break
         });
     }
   }, [status, apiUrl]);
@@ -282,27 +293,41 @@ export default function FeedPage() {
         params.append('brand', selectedBrands.join('|'));
       }
       
-      const response = await fetch(
-        `${apiUrl}/api/feed/search?${params}`
-      );
+      const url = `${apiUrl}/api/feed/search?${params}`;
+      console.log('Fetching listings from:', url);
+      
+      const response = await fetch(url);
 
       if (!response.ok) {
-        throw new Error('Failed to fetch listings');
+        const errorText = await response.text().catch(() => 'Unknown error');
+        console.error('API error:', response.status, response.statusText, errorText);
+        throw new Error(`Failed to fetch listings: ${response.status} ${response.statusText}`);
       }
 
       const data: SearchResponse = await response.json();
+      console.log('Received data:', {
+        listingsCount: data.listings?.length || 0,
+        total: data.pagination?.total || 0,
+        page: data.pagination?.page || 0,
+      });
       
       if (append) {
         setListings(prev => [...prev, ...data.listings]);
       } else {
-        setListings(data.listings);
+        setListings(data.listings || []);
       }
       
-      setTotal(data.pagination.total);
+      setTotal(data.pagination?.total || 0);
       setLastUpdate(new Date());
     } catch (err) {
       console.error('Error fetching listings:', err);
-      setError('Failed to load listings. Please try again.');
+      const errorMessage = err instanceof Error ? err.message : 'Failed to load listings. Please try again.';
+      setError(errorMessage);
+      // Set empty listings on error so UI shows error state
+      if (!append) {
+        setListings([]);
+        setTotal(0);
+      }
     } finally {
       setLoading(false);
     }
