@@ -1,7 +1,7 @@
 import asyncio
 import os
 from datetime import datetime, timedelta, timezone
-from database import init_database, _session_factory
+import database as db_module
 from models import Listing
 from sqlalchemy import select, func, delete
 import logging
@@ -16,14 +16,11 @@ async def cleanup_old_listings():
     """
     try:
         # Initialize database if not already initialized
-        if _session_factory is None:
-            from config import get_database_url
-            db_url = get_database_url()
-            if not db_url:
-                raise ValueError("DATABASE_URL not set")
-            init_database(db_url)
+        if db_module._session_factory is None:
+            # init_database() will use get_database_url() from config, which handles .env loading
+            db_module.init_database()  # Uses DATABASE_URL from environment or config
         
-        async with _session_factory() as session:
+        async with db_module._session_factory() as session:
             # Count total listings
             count_query = select(func.count(Listing.id))
             result = await session.execute(count_query)
