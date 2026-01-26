@@ -32,6 +32,15 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    // Admin bypass - check if user is admin
+    const ADMIN_DISCORD_IDS = process.env.ADMIN_DISCORD_IDS?.split(',').map(id => id.trim()) || [];
+    if (ADMIN_DISCORD_IDS.includes(session.user.id)) {
+      return NextResponse.json({
+        hasAccess: true,
+        reason: 'authorized' as const,
+      });
+    }
+
     // Check Discord role
     const result = await checkDiscordRole(
       token.accessToken,

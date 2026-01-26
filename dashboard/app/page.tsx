@@ -1,6 +1,21 @@
+'use client';
+
 import Link from 'next/link';
+import { signIn, useSession } from 'next-auth/react';
+import { useRouter } from 'next/navigation';
+import { useEffect } from 'react';
 
 export default function Home() {
+  const { data: session, status } = useSession();
+  const router = useRouter();
+
+  const handleBrowseFeed = () => {
+    if (status === 'authenticated') {
+      router.push('/feed');
+    } else {
+      signIn('discord', { callbackUrl: '/feed' });
+    }
+  };
   return (
     <div className="min-h-screen">
       {/* Hero Section */}
@@ -21,12 +36,12 @@ export default function Home() {
               Comme des Garçons, and more.
             </p>
             <div className="flex flex-col sm:flex-row gap-4">
-              <Link
-                href="/feed"
+              <button
+                onClick={handleBrowseFeed}
                 className="px-8 py-4 bg-gray-900 text-white rounded-md hover:bg-gray-800 transition-colors font-medium text-lg text-center"
               >
-                Browse Live Feed
-              </Link>
+                {status === 'authenticated' ? 'Browse Live Feed' : 'Sign in with Discord'}
+              </button>
               <a
                 href="#how-it-works"
                 className="px-8 py-4 border-2 border-gray-900 text-gray-900 rounded-md hover:bg-gray-50 transition-colors font-medium text-lg text-center"
@@ -180,12 +195,12 @@ export default function Home() {
             Join resellers and collectors already using SwagSearch
           </p>
           
-          <Link
-            href="/feed"
+          <button
+            onClick={handleBrowseFeed}
             className="inline-block px-8 py-4 bg-white text-gray-900 rounded-md hover:bg-gray-100 transition-colors font-medium text-lg"
           >
-            Browse Live Feed →
-          </Link>
+            {status === 'authenticated' ? 'Browse Live Feed →' : 'Sign in with Discord →'}
+          </button>
         </div>
       </section>
 

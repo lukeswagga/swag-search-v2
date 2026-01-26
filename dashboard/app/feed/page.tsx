@@ -1,8 +1,9 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { useSession } from 'next-auth/react';
+import { useSession, signOut } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
+import Image from 'next/image';
 
 interface Brand {
   name: string;
@@ -320,10 +321,36 @@ export default function FeedPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center justify-between">
             <h1 className="text-2xl font-serif text-gray-900">SwagSearch</h1>
-            <div className="flex items-center gap-2 text-sm text-gray-600">
-              <span className="w-2 h-2 bg-green-500 rounded-full"></span>
-              <span>Live • {total.toLocaleString()} items</span>
-            </div>
+            {session?.user && (
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2 text-sm text-gray-600">
+                  <span className="w-2 h-2 bg-green-500 rounded-full"></span>
+                  <span>{total.toLocaleString()} items</span>
+                </div>
+                <div className="flex items-center gap-3 pl-3 border-l border-gray-200">
+                  {session.user.image && (
+                    <Image
+                      src={session.user.image}
+                      alt={session.user.name || 'User'}
+                      width={32}
+                      height={32}
+                      className="rounded-full"
+                    />
+                  )}
+                  <div className="flex flex-col">
+                    <span className="text-sm font-medium text-gray-900">
+                      {session.user.name || 'User'}
+                    </span>
+                    <button
+                      onClick={() => signOut({ callbackUrl: '/' })}
+                      className="text-xs text-gray-500 hover:text-gray-700 text-left"
+                    >
+                      Sign out
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </nav>
