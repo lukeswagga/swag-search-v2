@@ -52,12 +52,37 @@ export async function GET(request: NextRequest) {
       hasAccessToken: !!token?.accessToken,
       tokenKeys: token ? Object.keys(token) : [],
       userId: token?.sub || token?.id,
+      sessionUserId: session.user.id,
     });
 
-    if (!token || !token.accessToken || typeof token.accessToken !== 'string') {
-      console.error('Missing access token in JWT');
+    if (!token) {
+      console.error('No token found');
       return NextResponse.json(
-        { hasAccess: false, reason: 'not_authenticated', details: 'Access token not found in session' },
+        { hasAccess: false, reason: 'not_authenticated', details: 'JWT token not found' },
+        { status: 401 }
+      );
+    }
+
+    if (!token.accessToken || typeof token.accessToken !== 'string') {
+      console.error('Missing access token in JWT', {
+        tokenKeys: Object.keys(token),
+        hasSub: !!token.sub,
+        hasId: !!token.id,
+      });
+      // Try to get access token from session if available
+      const sessionAccessToken = (session as any).accessToken;
+      if (sessionAccessToken && typeof sessionAccessToken === 'string') {
+        console.log('Using access token from session');
+        // Use session access token as fallback
+        const result = await checkDiscordRole(
+          sessionAccessToken,
+          session.user.id,
+          'Instant'
+        );
+        return NextResponse.json(result);
+      }
+      return NextResponse.json(
+        { hasAccess: false, reason: 'not_authenticated', details: 'Access token not found in session. Please sign out and sign in again.' },
         { status: 401 }
       );
     }

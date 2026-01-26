@@ -64,16 +64,19 @@ export const authOptions: NextAuthOptions = {
         console.log('JWT callback: Initial sign in', { 
           userId: user.id,
           hasAccessToken: !!account.access_token,
-          provider: account.provider
+          provider: account.provider,
+          tokenLength: account.access_token?.length
         });
       }
       // Subsequent requests - preserve existing access token and user ID
-      else if (user) {
+      // IMPORTANT: Always preserve the existing accessToken
+      if (user) {
         token.id = user.id;
-        // Keep existing accessToken if it exists
-        if (!token.accessToken) {
-          console.warn('JWT callback: Access token missing on subsequent request');
-        }
+      }
+      // If accessToken exists, keep it (don't overwrite with undefined)
+      if (!token.accessToken && account?.access_token) {
+        token.accessToken = account.access_token;
+        console.log('JWT callback: Restored access token from account');
       }
       return token;
     },
