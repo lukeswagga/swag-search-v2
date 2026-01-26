@@ -40,7 +40,11 @@ export default function Home() {
                 onClick={handleBrowseFeed}
                 className="px-8 py-4 bg-gray-900 text-white rounded-md hover:bg-gray-800 transition-colors font-medium text-lg text-center"
               >
-                {status === 'authenticated' ? 'Browse Live Feed' : 'Sign in with Discord'}
+                {status === 'loading' 
+                  ? 'Loading...' 
+                  : status === 'authenticated' 
+                    ? 'Browse Live Feed' 
+                    : 'Sign in with Discord'}
               </button>
               <a
                 href="#how-it-works"
@@ -199,7 +203,11 @@ export default function Home() {
             onClick={handleBrowseFeed}
             className="inline-block px-8 py-4 bg-white text-gray-900 rounded-md hover:bg-gray-100 transition-colors font-medium text-lg"
           >
-            {status === 'authenticated' ? 'Browse Live Feed →' : 'Sign in with Discord →'}
+            {status === 'loading' 
+              ? 'Loading...' 
+              : status === 'authenticated' 
+                ? 'Browse Live Feed →' 
+                : 'Sign in with Discord →'}
           </button>
         </div>
       </section>
