@@ -17,78 +17,57 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Get cookies for token retrieval - try both cookie names
-    const cookieStore = await cookies();
-    const sessionCookie = cookieStore.get('next-auth.session-token') || 
-                         cookieStore.get('__Secure-next-auth.session-token') ||
-                         cookieStore.get('authjs.session-token') ||
-                         cookieStore.get('__Secure-authjs.session-token');
-    
-    if (!sessionCookie) {
-      console.error('No session cookie found');
-      return NextResponse.json(
-        { hasAccess: false, reason: 'not_authenticated', details: 'No session cookie' },
-        { status: 401 }
-      );
-    }
-    
-    // Build cookie header
-    const allCookies = cookieStore.getAll();
-    const cookieHeader = allCookies.map(c => `${c.name}=${c.value}`).join('; ');
-    
-    // Get the access token from JWT
-    const token = await getToken({ 
-      req: {
-        headers: {
-          cookie: cookieHeader,
-        },
-        url: request.url,
-      } as any,
-      secret: process.env.NEXTAUTH_SECRET 
+    console.log('Session check:', {
+      hasSession: !!session,
+      userId: session.user.id,
+      userName: session.user.name,
+      sessionAccessToken: !!(session as any).accessToken,
     });
 
-    console.log('Token check:', {
-      hasToken: !!token,
-      hasAccessToken: !!token?.accessToken,
-      tokenKeys: token ? Object.keys(token) : [],
-      userId: token?.sub || token?.id,
-      sessionUserId: session.user.id,
-    });
-
-    if (!token) {
-      console.error('No token found', {
-        hasSession: !!session,
-        sessionUserId: session?.user?.id,
-      });
-      return NextResponse.json(
-        { hasAccess: false, reason: 'not_authenticated', details: 'JWT token not found' },
-        { status: 401 }
-      );
-    }
-
-    // Try to get access token from multiple sources
+    // Try to get access token from session first (most reliable)
     let accessToken: string | null = null;
     
-    // First, try JWT token
-    if (token.accessToken && typeof token.accessToken === 'string') {
-      accessToken = token.accessToken;
-      console.log('Using access token from JWT');
-    }
-    // Fallback to session
-    else if ((session as any).accessToken && typeof (session as any).accessToken === 'string') {
+    // First, try session accessToken (set in session callback)
+    if ((session as any).accessToken && typeof (session as any).accessToken === 'string') {
       accessToken = (session as any).accessToken;
-      console.log('Using access token from session');
+      console.log('✅ Using access token from session');
+    }
+    // Fallback to JWT token
+    else {
+      // Get cookies for token retrieval
+      const cookieStore = await cookies();
+      const allCookies = cookieStore.getAll();
+      const cookieHeader = allCookies.map(c => `${c.name}=${c.value}`).join('; ');
+      
+      // Get the access token from JWT
+      const token = await getToken({ 
+        req: {
+          headers: {
+            cookie: cookieHeader,
+          },
+          url: request.url,
+        } as any,
+        secret: process.env.NEXTAUTH_SECRET 
+      });
+
+      console.log('Token check:', {
+        hasToken: !!token,
+        hasAccessToken: !!token?.accessToken,
+        tokenKeys: token ? Object.keys(token) : [],
+      });
+
+      if (token?.accessToken && typeof token.accessToken === 'string') {
+        accessToken = token.accessToken;
+        console.log('✅ Using access token from JWT');
+      }
     }
     
     if (!accessToken) {
-      console.error('Missing access token in both JWT and session', {
-        tokenKeys: token ? Object.keys(token) : [],
-        hasSub: !!token?.sub,
-        hasId: !!token?.id,
+      console.error('❌ Missing access token in both session and JWT', {
         sessionHasAccessToken: !!(session as any).accessToken,
       });
       return NextResponse.json(
-        { hasAccess: false, reason: 'not_authenticated', details: 'Access token not found. Please sign out completely and sign in again with Discord.' },
+        { hasAccess: false, reason: 'not_authenticated', details: 'Access token not found. The OAuth flow may not have completed properly. Please sign out and sign in again.' },
         { status: 401 }
       );
     }
