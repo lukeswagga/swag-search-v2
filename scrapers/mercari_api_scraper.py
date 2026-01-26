@@ -50,6 +50,16 @@ except ImportError:
     from scrapers.base import BaseScraper
     from scrapers.rate_limiter import RateLimiter
 
+try:
+    from blacklist import is_blacklisted
+except ImportError:
+    import sys
+    import os
+    _parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if _parent_dir not in sys.path:
+        sys.path.insert(0, _parent_dir)
+    from blacklist import is_blacklisted
+
 from config import (
     MERCARI_MAX_REQUESTS_PER_MINUTE,
     MERCARI_MIN_DELAY_BETWEEN_REQUESTS,
@@ -662,6 +672,13 @@ class MercariAPIScraper(BaseScraper):
         for item in items:
             listing_data = self._parse_api_item(item, brand)
             if listing_data:
+                # Check if listing should be filtered out
+                title = listing_data.get('title', '')
+                listing_brand = listing_data.get('brand', brand)
+                if is_blacklisted(title, listing_brand):
+                    logger.debug(f"⏭️  Skipping blacklisted item: {title[:50]}")
+                    continue  # Skip this listing
+                
                 listings.append(listing_data)
         
         return listings, next_page_token
