@@ -23,15 +23,29 @@ export async function checkDiscordRole(
     }
 
     // Get user's guilds (servers) using their access token
+    console.log('Fetching user guilds with access token');
     const guildsResponse = await fetch('https://discord.com/api/users/@me/guilds', {
       headers: {
         Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
       },
     });
 
     if (!guildsResponse.ok) {
       const errorText = await guildsResponse.text().catch(() => 'Unknown error');
-      console.error('Failed to fetch user guilds:', guildsResponse.status, errorText);
+      console.error('Failed to fetch user guilds:', {
+        status: guildsResponse.status,
+        statusText: guildsResponse.statusText,
+        error: errorText,
+        hasAccessToken: !!accessToken,
+        tokenLength: accessToken?.length,
+      });
+      
+      // If token is invalid/expired, return specific error
+      if (guildsResponse.status === 401) {
+        return { hasAccess: false, reason: 'api_error' };
+      }
+      
       return { hasAccess: false, reason: 'api_error' };
     }
 
@@ -47,21 +61,41 @@ export async function checkDiscordRole(
     }
 
     // Get user's roles in your server using bot token
+    console.log('Fetching guild member with bot token', {
+      guildId: YOUR_SERVER_ID,
+      userId: userId,
+      hasBotToken: !!DISCORD_BOT_TOKEN,
+    });
+    
     const memberResponse = await fetch(
       `https://discord.com/api/guilds/${YOUR_SERVER_ID}/members/${userId}`,
       {
         headers: {
           Authorization: `Bot ${DISCORD_BOT_TOKEN}`,
+          'Content-Type': 'application/json',
         },
       }
     );
 
     if (!memberResponse.ok) {
+      const errorText = await memberResponse.text().catch(() => 'Unknown error');
+      console.error('Failed to fetch guild member:', {
+        status: memberResponse.status,
+        statusText: memberResponse.statusText,
+        error: errorText,
+        guildId: YOUR_SERVER_ID,
+        userId: userId,
+      });
+      
       if (memberResponse.status === 404) {
         // User is not in the server (edge case)
         return { hasAccess: false, reason: 'not_in_server' };
       }
-      console.error('Failed to fetch guild member:', memberResponse.status);
+      
+      if (memberResponse.status === 401 || memberResponse.status === 403) {
+        console.error('Bot token may be invalid or bot lacks permissions');
+      }
+      
       return { hasAccess: false, reason: 'api_error' };
     }
 
