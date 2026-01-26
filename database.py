@@ -800,17 +800,12 @@ async def search_listings_paginated(
             except Exception as e:
                 error_str = str(e)
                 if "category" in error_str.lower() and ("does not exist" in error_str or "UndefinedColumnError" in error_str):
-                    # Category column doesn't exist - query without it
-                    logger.warning("⚠️  Category column missing - querying without category field")
-                    # Rebuild query using explicit columns (excluding category)
-                    from sqlalchemy.orm import load_only
-                    # Use load_only to exclude category column
-                    query_no_category = query.options(load_only(
-                        Listing.id, Listing.market, Listing.external_id, Listing.title,
-                        Listing.price_jpy, Listing.brand, Listing.url, Listing.image_url,
-                        Listing.listing_type, Listing.seller_id, Listing.first_seen, Listing.last_seen
-                    ))
-                    result = await session.execute(query_no_category)
+                    # Category column doesn't exist - use defer to exclude it
+                    logger.warning("⚠️  Category column missing - using workaround")
+                    from sqlalchemy.orm import defer
+                    # Defer category column so SQLAlchemy doesn't try to load it
+                    query = query.options(defer(Listing.category))
+                    result = await session.execute(query)
                     listings = result.scalars().all()
                     # Set category to None for all listings
                     for listing in listings:
