@@ -14,7 +14,11 @@ export async function checkDiscordRole(
     const INSTANT_ROLE_ID = process.env.DISCORD_INSTANT_ROLE_ID;
 
     if (!YOUR_SERVER_ID || !DISCORD_BOT_TOKEN || !INSTANT_ROLE_ID) {
-      console.error('Missing Discord environment variables');
+      const missing = [];
+      if (!YOUR_SERVER_ID) missing.push('DISCORD_GUILD_ID');
+      if (!DISCORD_BOT_TOKEN) missing.push('DISCORD_BOT_TOKEN');
+      if (!INSTANT_ROLE_ID) missing.push('DISCORD_INSTANT_ROLE_ID');
+      console.error('Missing Discord environment variables:', missing.join(', '));
       return { hasAccess: false, reason: 'error' };
     }
 
@@ -26,7 +30,8 @@ export async function checkDiscordRole(
     });
 
     if (!guildsResponse.ok) {
-      console.error('Failed to fetch user guilds:', guildsResponse.status);
+      const errorText = await guildsResponse.text().catch(() => 'Unknown error');
+      console.error('Failed to fetch user guilds:', guildsResponse.status, errorText);
       return { hasAccess: false, reason: 'api_error' };
     }
 
@@ -63,6 +68,13 @@ export async function checkDiscordRole(
 
     // Check if user has required role
     const hasRole = roles.includes(INSTANT_ROLE_ID);
+    
+    console.log('Role check:', {
+      userId,
+      roles,
+      requiredRoleId: INSTANT_ROLE_ID,
+      hasRole,
+    });
 
     return {
       hasAccess: hasRole,

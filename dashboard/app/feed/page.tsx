@@ -113,23 +113,61 @@ function LoadingScreen() {
   );
 }
 
-function UpgradePrompt() {
+function UpgradePrompt({ reason, userId }: { reason?: string | null; userId?: string }) {
+  const getMessage = () => {
+    switch (reason) {
+      case 'not_in_server':
+        return 'You need to join the Discord server first. Please join the server and try again.';
+      case 'missing_role':
+        return 'Access to the live feed requires the Instant tier subscription.';
+      case 'api_error':
+        return 'There was an error checking your Discord permissions. Please try again or contact support.';
+      case 'error':
+        return 'There was an error verifying your access. Please check that all Discord environment variables are set correctly.';
+      case 'not_authenticated':
+        return 'Please sign in with Discord to access the feed.';
+      default:
+        return 'Access to the live feed requires the Instant tier subscription.';
+    }
+  };
+
   return (
     <div className="min-h-screen bg-white flex items-center justify-center px-4">
       <div className="max-w-md text-center">
         <h1 className="font-serif text-4xl text-gray-900 mb-4">
-          Upgrade Required
+          {reason === 'not_in_server' ? 'Join Discord Server' : 'Upgrade Required'}
         </h1>
-        <p className="text-gray-600 mb-8">
-          Access to the live feed requires the Instant tier subscription.
+        <p className="text-gray-600 mb-4">
+          {getMessage()}
         </p>
+        {reason && (
+          <p className="text-sm text-gray-400 mb-6">
+            Reason: {reason}
+            {userId && (
+              <span className="block mt-2 text-xs">
+                User ID: {userId}
+                <br />
+                {reason === 'missing_role' && 'Set ADMIN_DISCORD_IDS in Vercel to bypass this check.'}
+              </span>
+            )}
+          </p>
+        )}
         <div className="space-y-3">
-          <a
-            href="https://whop.com/swagsearch"
-            className="block w-full bg-gray-900 text-white py-3 px-6 rounded-md hover:bg-gray-800 transition-colors font-medium"
-          >
-            Upgrade to Instant ($30/mo)
-          </a>
+          {reason === 'not_in_server' ? (
+            <a
+              href="https://discord.gg/your-server"
+              className="block w-full bg-[#5865F2] text-white py-3 px-6 rounded-md hover:bg-[#4752C4] transition-colors font-medium"
+            >
+              Join Discord Server
+            </a>
+          ) : (
+            <a
+              href="https://whop.com/swagsearch"
+              className="block w-full bg-gray-900 text-white py-3 px-6 rounded-md hover:bg-gray-800 transition-colors font-medium"
+            >
+              Upgrade to Instant ($30/mo)
+            </a>
+          )}
           <a
             href="/"
             className="block text-gray-600 hover:text-gray-900"
@@ -158,6 +196,7 @@ export default function FeedPage() {
   const [error, setError] = useState<string | null>(null);
   const [selectedListing, setSelectedListing] = useState<Listing | null>(null);
   const [hasAccess, setHasAccess] = useState<boolean | null>(null);
+  const [accessReason, setAccessReason] = useState<string | null>(null);
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://web-production-0bd84.up.railway.app';
 
@@ -175,6 +214,7 @@ export default function FeedPage() {
         }
         const result = await response.json();
         setHasAccess(result.hasAccess);
+        setAccessReason(result.reason || null);
 
         if (!result.hasAccess) {
           // Log why access denied for debugging
@@ -315,7 +355,7 @@ export default function FeedPage() {
 
   // Show upgrade prompt if no access
   if (!hasAccess) {
-    return <UpgradePrompt />;
+    return <UpgradePrompt reason={accessReason} userId={session?.user?.id} />;
   }
 
   return (
