@@ -207,10 +207,16 @@ export default function FeedPage() {
 
       try {
         const response = await fetch('/api/check-role');
-        if (!response.ok) {
-          throw new Error('Failed to check role');
-        }
         const result = await response.json();
+        
+        if (!response.ok) {
+          // Handle error responses
+          setHasAccess(false);
+          setAccessReason(result.reason || 'api_error');
+          console.error('Role check failed:', response.status, result);
+          return;
+        }
+        
         setHasAccess(result.hasAccess);
         setAccessReason(result.reason || null);
 
