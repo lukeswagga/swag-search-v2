@@ -186,6 +186,7 @@ export default function FeedPage() {
   const [selectedBrands, setSelectedBrands] = useState<string[]>([]);
   const [priceRange, setPriceRange] = useState([0, 1000]);
   const [market, setMarket] = useState('all');
+  const [sort, setSort] = useState('newest');
   const [listings, setListings] = useState<Listing[]>([]);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
@@ -273,7 +274,7 @@ export default function FeedPage() {
         min_price_usd: priceRange[0].toString(),
         max_price_usd: priceRange[1].toString(),
         market: market,
-        sort: 'newest'
+        sort: sort
       });
       
       // Add brands if any selected (OR logic - search for any of the selected brands)
@@ -305,7 +306,7 @@ export default function FeedPage() {
     } finally {
       setLoading(false);
     }
-  }, [session, priceRange, market, selectedBrands, apiUrl]);
+  }, [session, priceRange, market, selectedBrands, sort, apiUrl]);
 
   // Fetch when filters change
   useEffect(() => {
@@ -313,7 +314,7 @@ export default function FeedPage() {
       setPage(1);
       fetchListings(1, false);
     }
-  }, [selectedBrands, priceRange, market, status, session, fetchListings]);
+  }, [selectedBrands, priceRange, market, sort, status, session, fetchListings]);
 
   // Auto-refresh every 30 seconds to show new listings
   useEffect(() => {
@@ -325,7 +326,7 @@ export default function FeedPage() {
     }, 30000); // 30 seconds
     
     return () => clearInterval(interval);
-  }, [selectedBrands, priceRange, market]); // Re-run if filters change
+  }, [selectedBrands, priceRange, market, sort]); // Re-run if filters change
 
   const loadMore = () => {
     if (loading) return;
@@ -346,6 +347,7 @@ export default function FeedPage() {
     setSelectedBrands([]);
     setPriceRange([0, 1000]);
     setMarket('all');
+    setSort('newest');
   };
 
   // Show loading while checking authentication or access
@@ -445,7 +447,7 @@ export default function FeedPage() {
                     placeholder="Min"
                     value={priceRange[0] || ''}
                     onChange={(e) => setPriceRange([Number(e.target.value) || 0, priceRange[1]])}
-                    className="w-24 px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-1 focus:ring-gray-900 focus:border-gray-900 outline-none"
+                    className="w-24 px-3 py-2 border border-gray-300 rounded-md text-sm text-gray-900 bg-white focus:ring-1 focus:ring-gray-900 focus:border-gray-900 outline-none"
                   />
                   <span className="text-gray-400">—</span>
                   <input
@@ -453,7 +455,7 @@ export default function FeedPage() {
                     placeholder="Max"
                     value={priceRange[1] || ''}
                     onChange={(e) => setPriceRange([priceRange[0], Number(e.target.value) || 1000])}
-                    className="w-24 px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-1 focus:ring-gray-900 focus:border-gray-900 outline-none"
+                    className="w-24 px-3 py-2 border border-gray-300 rounded-md text-sm text-gray-900 bg-white focus:ring-1 focus:ring-gray-900 focus:border-gray-900 outline-none"
                   />
                 </div>
               </div>
@@ -480,8 +482,9 @@ export default function FeedPage() {
                   Sort By
                 </label>
                 <select 
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-1 focus:ring-gray-900 focus:border-gray-900 outline-none bg-white"
-                  defaultValue="newest"
+                  value={sort}
+                  onChange={(e) => setSort(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-1 focus:ring-gray-900 focus:border-gray-900 outline-none bg-white text-gray-900"
                 >
                   <option value="newest">Newest</option>
                   <option value="price_low">Price: Low to High</option>
