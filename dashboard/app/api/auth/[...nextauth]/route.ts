@@ -34,6 +34,12 @@ export const authOptions: NextAuthOptions = {
           return false;
         }
 
+        // Log successful sign-in
+        console.log('Discord sign-in successful', {
+          userId: discordId,
+          hasAccessToken: !!account.access_token,
+        });
+
         // TODO: Call Railway API to save user if needed
         // User data will be saved via API calls from other parts of the dashboard
         // Example: await fetch('https://web-production-0bd84.up.railway.app/api/users', { ... })
@@ -83,9 +89,6 @@ export const authOptions: NextAuthOptions = {
   },
   session: {
     strategy: 'jwt',
-  },
-  pages: {
-    signIn: '/test-auth',
   },
   secret: process.env.NEXTAUTH_SECRET,
 };
