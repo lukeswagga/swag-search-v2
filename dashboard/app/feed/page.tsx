@@ -146,8 +146,6 @@ function UpgradePrompt({ reason, userId }: { reason?: string | null; userId?: st
             {userId && (
               <span className="block mt-2 text-xs">
                 User ID: {userId}
-                <br />
-                {reason === 'missing_role' && 'Set ADMIN_DISCORD_IDS in Vercel to bypass this check.'}
               </span>
             )}
           </p>
