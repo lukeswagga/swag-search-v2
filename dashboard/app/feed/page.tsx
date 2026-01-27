@@ -197,6 +197,7 @@ export default function FeedPage() {
   const [hasAccess, setHasAccess] = useState<boolean | null>(null);
   const [accessReason, setAccessReason] = useState<string | null>(null);
   const [newItemsCount, setNewItemsCount] = useState(0);
+  const [lastKnownTimestamp, setLastKnownTimestamp] = useState<string | null>(null);
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://web-production-0bd84.up.railway.app';
 
@@ -349,21 +350,47 @@ export default function FeedPage() {
   useEffect(() => {
     if (status === 'authenticated' && session?.user?.id) {
       setPage(1);
+      setLastKnownTimestamp(null); // Reset timestamp when filters change
       fetchListings(1, false);
     }
   }, [selectedBrands, priceRange, market, sort, status, session, fetchListings]);
 
-  // Auto-refresh every 10 seconds to show new listings (real-time updates)
+  // Smart polling - only refresh when new listings detected
   useEffect(() => {
     if (status !== 'authenticated' || !session?.user?.id || !hasAccess) return;
 
-    const interval = setInterval(() => {
-      // Refetch page 1 to get newest items (don't append, replace)
-      fetchListings(1, false);
-    }, 10000); // 10 seconds for real-time feel
+    async function checkForUpdates() {
+      try {
+        const response = await fetch(
+          `${apiUrl}/api/feed/status`
+        );
+        const data = await response.json();
+        
+        // If we have a newer timestamp, refresh the feed
+        if (data.latest_timestamp && data.latest_timestamp !== lastKnownTimestamp) {
+          console.log('🔔 New listings detected, refreshing...');
+          await fetchListings(1, false);
+          setLastKnownTimestamp(data.latest_timestamp);
+        }
+      } catch (error) {
+        console.error('Status check failed:', error);
+      }
+    }
     
+    const interval = setInterval(checkForUpdates, 5000); // Check every 5 seconds
     return () => clearInterval(interval);
-  }, [selectedBrands, priceRange, market, sort, hasAccess, fetchListings]); // Re-run if filters change
+  }, [lastKnownTimestamp, selectedBrands, priceRange, market, sort, hasAccess, fetchListings, apiUrl, status, session]);
+
+  // Set initial timestamp when listings load
+  useEffect(() => {
+    if (listings.length > 0 && !lastKnownTimestamp) {
+      // Get the most recent listing's timestamp
+      const newest = listings[0]; // Assuming sorted by newest first
+      if (newest?.first_seen) {
+        setLastKnownTimestamp(newest.first_seen);
+      }
+    }
+  }, [listings, lastKnownTimestamp]);
 
   const loadMore = () => {
     if (loading) return;
