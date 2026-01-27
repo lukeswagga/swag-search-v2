@@ -17,7 +17,7 @@ import asyncio
 import os
 import logging
 from sqlalchemy import text
-from database import init_database, _engine, _session_factory
+import database
 from models import Listing
 from category_mapper import get_category_from_title, normalize_category
 
@@ -29,7 +29,7 @@ async def add_category_column():
     """Add category column if it doesn't exist."""
     logger.info("1. Checking category column...")
 
-    async with _engine.begin() as conn:
+    async with database._engine.begin() as conn:
         try:
             # Check if column exists (PostgreSQL)
             result = await conn.execute(text("""
@@ -104,7 +104,7 @@ async def create_indexes():
         ),
     ]
 
-    async with _engine.begin() as conn:
+    async with database._engine.begin() as conn:
         for idx_name, idx_sql in indexes:
             try:
                 await conn.execute(text(idx_sql))
@@ -125,7 +125,7 @@ async def backfill_categories(batch_size: int = 500, max_batches: int = 100):
 
     from sqlalchemy import select, or_
 
-    async with _session_factory() as session:
+    async with database._session_factory() as session:
         while batch_num < max_batches:
             # Get batch of listings without proper categories
             query = (
@@ -181,7 +181,7 @@ async def get_category_stats():
 
     from sqlalchemy import func, select
 
-    async with _session_factory() as session:
+    async with database._session_factory() as session:
         query = (
             select(
                 Listing.category,
@@ -214,7 +214,7 @@ async def optimize_database():
     logger.info("\U0001F527 Starting database optimization...")
     logger.info(f"   Database: {db_url.split('@')[-1] if '@' in db_url else 'local'}")
 
-    init_database(db_url)
+    database.init_database(db_url)
 
     # Run optimizations
     await add_category_column()
