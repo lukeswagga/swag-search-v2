@@ -113,10 +113,10 @@ async def create_indexes():
                 logger.info(f"   \u2713 Index {idx_name} exists or skipped: {str(e)[:50]}")
 
 
-async def backfill_categories(batch_size: int = 500, max_batches: int = 100):
+async def backfill_categories(batch_size: int = 500, max_batches: int = 200):
     """
     Backfill categories for existing listings from titles.
-    Only processes listings with category = 'Other' or NULL.
+    Processes listings with NULL, 'Other', empty, or 'category_XXXX' values.
     """
     logger.info("3. Backfilling categories for existing listings...")
 
@@ -128,13 +128,15 @@ async def backfill_categories(batch_size: int = 500, max_batches: int = 100):
     async with database._session_factory() as session:
         while batch_num < max_batches:
             # Get batch of listings without proper categories
+            # Include category_XXXX patterns (raw Mercari IDs)
             query = (
                 select(Listing)
                 .where(
                     or_(
                         Listing.category == None,
                         Listing.category == 'Other',
-                        Listing.category == ''
+                        Listing.category == '',
+                        Listing.category.like('category_%')  # Raw Mercari IDs
                     )
                 )
                 .limit(batch_size)
@@ -148,15 +150,14 @@ async def backfill_categories(batch_size: int = 500, max_batches: int = 100):
 
             updated_count = 0
             for listing in listings:
-                # First try to normalize existing category
-                if listing.category and listing.category not in ['Other', '']:
-                    normalized = normalize_category(listing.category)
-                    if normalized != 'Other':
-                        listing.category = normalized
-                        updated_count += 1
-                        continue
+                old_category = listing.category
 
-                # Fall back to extracting from title
+                # Skip if already a valid English category
+                valid_categories = ['Jackets', 'Tops', 'Pants', 'Shoes', 'Bags', 'Accessories']
+                if old_category in valid_categories:
+                    continue
+
+                # Try to extract category from title
                 category = get_category_from_title(listing.title)
                 if category != 'Other':
                     listing.category = category
