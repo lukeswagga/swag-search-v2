@@ -62,7 +62,7 @@ class Listing(Base):
     image_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     listing_type: Mapped[str] = mapped_column(String(20), nullable=False)  # "auction", "buy_it_now", etc.
     seller_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, index=True)
-    category: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    category: Mapped[Optional[str]] = mapped_column(String(200), nullable=True, index=True, default='Other')
     first_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.utcnow(), nullable=False, index=True)
     last_seen: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), 

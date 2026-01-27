@@ -23,6 +23,7 @@ from database import (
     get_recent_listings,
     get_listing_by_id,
     get_brands_with_counts,
+    _session_factory,
 )
 from models import UserFilter, Listing
 from config import get_database_url
@@ -94,6 +95,7 @@ class SearchParams(BaseModel):
     min_price_usd: Optional[float] = None
     max_price_usd: Optional[float] = None
     market: Optional[str] = None
+    category: Optional[str] = None
 
 class SearchResponse(BaseModel):
     listings: List[ListingResponse]
@@ -162,7 +164,7 @@ async def get_filters(discord_id: str = Query(..., description="Discord user ID"
                 "active": f.active
             })
         
-        logger.info(f"✅ Retrieved {len(response)} filters for user {discord_id}")
+        logger.debug(f"Filters: {len(response)} for user {discord_id[:8]}...")
         return response
     
     except Exception as e:
@@ -221,7 +223,7 @@ async def create_filter(filter_data: FilterCreate):
             "active": user_filter.active
         }
         
-        logger.info(f"✅ Created filter '{filter_data.name}' (ID: {filter_id}) for user {filter_data.discord_id}")
+        logger.info(f"Filter created: '{filter_data.name}' (ID: {filter_id})")
         return response
     
     except HTTPException:
@@ -279,7 +281,7 @@ async def update_filter(filter_id: int, filter_data: FilterCreate):
             "active": existing.active
         }
         
-        logger.info(f"✅ Updated filter {filter_id} for user {filter_data.discord_id}")
+        logger.debug(f"Filter updated: {filter_id}")
         return response
     
     except HTTPException:
@@ -303,7 +305,7 @@ async def delete_filter(filter_id: int, discord_id: str = Query(...)):
         # Delete
         await delete_user_filter(filter_id)
         
-        logger.info(f"✅ Deleted filter {filter_id} for user {discord_id}")
+        logger.debug(f"Filter deleted: {filter_id}")
         return {"success": True, "deleted_id": filter_id}
     
     except HTTPException:
@@ -392,7 +394,7 @@ async def get_feed(
                 "first_seen": listing.first_seen.isoformat()
             })
         
-        logger.info(f"✅ Retrieved {len(response)} listings for user {discord_id}")
+        logger.debug(f"Feed: {len(response)} listings for user {discord_id[:8]}...")
         return response
     
     except HTTPException:
@@ -409,6 +411,7 @@ async def search_feed(
     min_price_usd: Optional[float] = Query(None, ge=0, description="Minimum price in USD"),
     max_price_usd: Optional[float] = Query(None, ge=0, description="Maximum price in USD"),
     market: str = Query("all", description="Market filter: 'all', 'yahoo', or 'mercari'"),
+    category: Optional[str] = Query(None, description="Category filter: 'Jackets', 'Tops', 'Pants', 'Shoes', 'Bags', 'Accessories', or 'All'"),
     page: int = Query(1, ge=1, description="Page number"),
     per_page: int = Query(100, ge=1, le=200, description="Items per page (max 200)"),
     sort: str = Query("newest", description="Sort order: 'newest', 'oldest', 'price_low', 'price_high'")
@@ -438,12 +441,21 @@ async def search_feed(
                 detail=f"Invalid market parameter. Must be one of: {', '.join(valid_markets)}"
             )
 
+        # Validate category parameter
+        valid_categories = ["Jackets", "Tops", "Pants", "Shoes", "Bags", "Accessories", "All", None]
+        if category and category not in valid_categories:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid category. Must be one of: {', '.join([c for c in valid_categories if c])}"
+            )
+
         # Query database
         listings, total_count = await search_listings_paginated(
             brand=brand,
             min_price_jpy=min_price_jpy,
             max_price_jpy=max_price_jpy,
             market=market if market != "all" else None,
+            category=category if category and category != "All" else None,
             sort=sort,
             page=page,
             per_page=per_page
@@ -485,14 +497,13 @@ async def search_feed(
                 "brand": brand,
                 "min_price_usd": min_price_usd,
                 "max_price_usd": max_price_usd,
-                "market": market
+                "market": market,
+                "category": category
             }
         }
 
-        logger.info(
-            f"✅ Search completed for user {discord_id}: "
-            f"{len(listing_responses)} of {total_count} results "
-            f"(page {page}/{total_pages})"
+        logger.debug(
+            f"Search: user={discord_id[:8]}..., results={len(listing_responses)}/{total_count}, page={page}"
         )
 
         return response
@@ -513,6 +524,7 @@ async def get_recent_feed(
     min_price_usd: Optional[float] = Query(None, ge=0, description="Minimum price in USD"),
     max_price_usd: Optional[float] = Query(None, ge=0, description="Maximum price in USD"),
     market: Optional[str] = Query("all", description="Market filter"),
+    category: Optional[str] = Query(None, description="Category filter"),
     limit: int = Query(50, ge=1, le=200, description="Maximum items to return")
 ):
     """
@@ -540,6 +552,7 @@ async def get_recent_feed(
             min_price_jpy=min_price_jpy,
             max_price_jpy=max_price_jpy,
             market=market if market != "all" else None,
+            category=category if category and category != "All" else None,
             limit=limit
         )
 
@@ -571,9 +584,8 @@ async def get_recent_feed(
             "latest_timestamp": latest_timestamp.isoformat() if latest_timestamp else None
         }
 
-        logger.info(
-            f"✅ Recent listings for user {discord_id}: "
-            f"{len(listing_responses)} new listings since {since}"
+        logger.debug(
+            f"Recent: user={discord_id[:8]}..., {len(listing_responses)} new since {since[:19]}"
         )
 
         return response
@@ -652,7 +664,7 @@ async def get_listing_detail(
             "listing_type": listing.listing_type
         }
 
-        logger.info(f"✅ Retrieved listing {listing_id}: {listing.title}")
+        logger.debug(f"Listing detail: {listing_id}")
         return response
 
     except HTTPException:
@@ -676,11 +688,58 @@ async def get_brands(
     try:
         brands = await get_brands_with_counts(limit=limit, min_count=min_count)
         
-        logger.info(f"✅ Retrieved {len(brands)} curated brands (limit={limit}, min_count={min_count})")
+        logger.debug(f"Brands: {len(brands)} returned (limit={limit}, min_count={min_count})")
         return brands
-    
+
     except Exception as e:
-        logger.error(f"❌ Error getting brands: {e}", exc_info=True)
+        logger.error(f"Error getting brands: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# Get categories with counts (for category filter UI)
+@app.get("/api/categories")
+async def get_categories():
+    """
+    Get list of all categories with listing counts.
+    Used for category filter UI in the feed page.
+
+    Returns:
+        List of categories with names and counts, sorted by count descending.
+    """
+    try:
+        from sqlalchemy import func, select
+
+        async with _session_factory() as session:
+            # Get categories with counts (exclude 'Other' and NULL)
+            query = (
+                select(
+                    Listing.category,
+                    func.count(Listing.id).label('count')
+                )
+                .where(Listing.category != None)
+                .where(Listing.category != 'Other')
+                .where(Listing.category != '')
+                .group_by(Listing.category)
+                .order_by(func.count(Listing.id).desc())
+            )
+
+            result = await session.execute(query)
+            categories = result.all()
+
+            # Format response
+            response = [
+                {
+                    "name": cat,
+                    "count": count
+                }
+                for cat, count in categories
+            ]
+
+            logger.debug(f"Categories: {len(response)} returned")
+            return response
+
+    except Exception as e:
+        logger.error(f"Error getting categories: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -700,6 +759,7 @@ async def root():
             "recent": "/api/feed/recent",
             "feed_status": "/api/feed/status",
             "listing_detail": "/api/listings/{id}",
-            "brands": "/api/brands"
+            "brands": "/api/brands",
+            "categories": "/api/categories"
         }
     }

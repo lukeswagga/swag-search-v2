@@ -312,9 +312,8 @@ async def save_listings_batch(listings: List[Listing]) -> Dict[str, int]:
             
             # Commit all changes at once
             await session.commit()
-            logger.info(
-                f"💾 Batch save complete: {stats['saved']} new, "
-                f"{stats['duplicates']} duplicates, {stats['errors']} errors"
+            logger.debug(
+                f"Batch save: {stats['saved']} new, {stats['duplicates']} dups, {stats['errors']} errors"
             )
             
     except Exception as e:
@@ -397,7 +396,7 @@ async def save_user_filter(user_filter: UserFilter) -> int:
             await session.commit()
             await session.refresh(user_filter)  # Refresh to get the ID
             filter_id = user_filter.id
-            logger.info(f"✅ Saved user filter: {user_filter.name} (ID: {filter_id}, user: {user_filter.user_id})")
+            logger.debug(f"Saved filter: {user_filter.name} (ID: {filter_id})")
             return filter_id
     except Exception as e:
         logger.error(f"❌ Error saving user filter: {e}", exc_info=True)
@@ -519,7 +518,7 @@ async def update_user_filter(filter_id: int, updates: dict) -> Optional[UserFilt
             await session.commit()
             await session.refresh(filter_obj)
 
-            logger.info(f"✅ Updated filter {filter_id}")
+            logger.debug(f"Updated filter: {filter_id}")
             return filter_obj
     except Exception as e:
         logger.error(f"❌ Error updating filter: {e}", exc_info=True)
@@ -558,7 +557,7 @@ async def delete_user_filter(filter_id: int) -> bool:
             await session.delete(filter_obj)
             await session.commit()
 
-            logger.info(f"✅ Deleted filter {filter_id}")
+            logger.debug(f"Deleted filter: {filter_id}")
             return True
     except Exception as e:
         logger.error(f"❌ Error deleting filter: {e}", exc_info=True)
@@ -717,6 +716,7 @@ async def search_listings_paginated(
     min_price_jpy: Optional[int] = None,
     max_price_jpy: Optional[int] = None,
     market: Optional[str] = None,
+    category: Optional[str] = None,
     sort: str = "newest",
     page: int = 1,
     per_page: int = 100
@@ -729,6 +729,7 @@ async def search_listings_paginated(
         min_price_jpy: Minimum price in JPY
         max_price_jpy: Maximum price in JPY
         market: Market filter ("yahoo", "mercari", or None for all)
+        category: Category filter ("Jackets", "Tops", "Pants", "Shoes", "Bags", "Accessories", or None for all)
         sort: Sort order ("newest", "oldest", "price_low", "price_high")
         page: Page number (1-indexed)
         per_page: Items per page (max 200)
@@ -765,6 +766,9 @@ async def search_listings_paginated(
 
             if market and market != "all":
                 conditions.append(Listing.market == market)
+
+            if category and category != "All":
+                conditions.append(Listing.category == category)
 
             # Apply all conditions
             if conditions:
@@ -813,10 +817,10 @@ async def search_listings_paginated(
                 else:
                     raise
 
-            logger.info(
-                f"Search query: brand={brand}, price={min_price_jpy}-{max_price_jpy}, "
-                f"market={market}, sort={sort}, page={page}/{per_page} -> "
-                f"returned {len(listings)} of {total_count} total"
+            logger.debug(
+                f"Search: brand={brand}, price={min_price_jpy}-{max_price_jpy}, "
+                f"market={market}, category={category}, sort={sort}, page={page}/{per_page} -> "
+                f"{len(listings)}/{total_count}"
             )
 
             return list(listings), total_count
@@ -832,6 +836,7 @@ async def get_recent_listings(
     min_price_jpy: Optional[int] = None,
     max_price_jpy: Optional[int] = None,
     market: Optional[str] = None,
+    category: Optional[str] = None,
     limit: int = 50
 ) -> List[Listing]:
     """
@@ -844,6 +849,7 @@ async def get_recent_listings(
         min_price_jpy: Minimum price in JPY
         max_price_jpy: Maximum price in JPY
         market: Market filter ("yahoo", "mercari", or None for all)
+        category: Category filter ("Jackets", "Tops", etc., or None for all)
         limit: Maximum number of listings to return
 
     Returns:
@@ -880,6 +886,9 @@ async def get_recent_listings(
             if market and market != "all":
                 conditions.append(Listing.market == market)
 
+            if category and category != "All":
+                conditions.append(Listing.category == category)
+
             if conditions:
                 query = query.where(and_(*conditions))
 
@@ -890,9 +899,8 @@ async def get_recent_listings(
             result = await session.execute(query)
             listings = result.scalars().all()
 
-            logger.info(
-                f"Recent listings query: since={since}, filters={bool(conditions)} -> "
-                f"returned {len(listings)} new listings"
+            logger.debug(
+                f"Recent listings: since={since}, filters={bool(conditions)} -> {len(listings)} new"
             )
 
             return list(listings)
@@ -996,7 +1004,7 @@ async def get_brands_with_counts(limit: int = 30, min_count: int = 5) -> List[Di
             if limit:
                 brands_with_counts = brands_with_counts[:limit]
             
-            logger.info(f"Retrieved {len(brands_with_counts)} curated brands with counts (from {len(CURATED_BRANDS)} whitelist)")
+            logger.debug(f"Brands: {len(brands_with_counts)} (from {len(CURATED_BRANDS)} whitelist)")
             return brands_with_counts
     
     except Exception as e:
