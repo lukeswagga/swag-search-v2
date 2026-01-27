@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import Image from 'next/image';
 import { signIn, signOut, useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
@@ -135,9 +136,14 @@ export default function Home() {
             </div>
             
             <div className="bg-white rounded-lg shadow-2xl p-4">
-              {/* Screenshot placeholder - add actual screenshot */}
-              <div className="aspect-[4/3] bg-gray-200 rounded flex items-center justify-center">
-                <span className="text-gray-400">Feed Screenshot</span>
+              <div className="relative aspect-[4/3] rounded overflow-hidden border border-gray-200">
+                <Image
+                  src="/feed-screenshot.png"
+                  alt="SwagSearch live feed screenshot"
+                  fill
+                  className="object-cover"
+                  priority
+                />
               </div>
             </div>
           </div>
