@@ -50,6 +50,16 @@ except ImportError:
         sys.path.insert(0, _parent_dir)
     from category_filter import should_exclude_category
 
+try:
+    from category_mapper import map_category, get_category_from_title
+except ImportError:
+    import sys
+    import os
+    _parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if _parent_dir not in sys.path:
+        sys.path.insert(0, _parent_dir)
+    from category_mapper import map_category, get_category_from_title
+
 from config import (
     YAHOO_SEARCH_URL,
     YAHOO_TIMEOUT,
@@ -306,53 +316,61 @@ class YahooScraper(BaseScraper):
         
         return None
     
-    def extract_category(self, item: BeautifulSoup) -> Optional[str]:
+    def extract_category(self, item: BeautifulSoup, title: str = None) -> str:
         """
-        Extract category from Yahoo Japan listing item
-        
+        Extract and map category from Yahoo Japan listing item to English.
+
         Args:
             item: BeautifulSoup element for the listing
-        
+            title: Optional title for fallback category extraction
+
         Returns:
-            Category name or path, or None if not found
+            English category name (Jackets, Tops, Pants, Shoes, Bags, Accessories) or 'Other'
         """
         try:
+            category_text = None
+
             # Method 1: Look for category breadcrumb
             category_link = item.select_one("a[href*='category']")
             if category_link:
                 category_text = category_link.get_text(strip=True)
-                if category_text:
-                    return category_text
-            
+
             # Method 2: Look for category in data attributes
-            category_attr = item.get('data-category') or item.get('data-cat')
-            if category_attr:
-                return category_attr
-            
+            if not category_text:
+                category_text = item.get('data-category') or item.get('data-cat')
+
             # Method 3: Look for category class or text
-            category_elem = item.select_one(".Product__category, .category, [class*='Category']")
-            if category_elem:
-                category_text = category_elem.get_text(strip=True)
-                if category_text:
-                    return category_text
-            
+            if not category_text:
+                category_elem = item.select_one(".Product__category, .category, [class*='Category']")
+                if category_elem:
+                    category_text = category_elem.get_text(strip=True)
+
             # Method 4: Extract from URL if available
-            link_tag = item.select_one("a.Product__titleLink")
-            if link_tag:
-                href = link_tag.get('href', '')
-                # Yahoo URLs sometimes contain category info
-                if '/category/' in href:
-                    parts = href.split('/category/')
-                    if len(parts) > 1:
-                        category_part = parts[1].split('/')[0]
-                        # Decode URL-encoded category names
-                        import urllib.parse
-                        return urllib.parse.unquote(category_part)
-            
-            return None
+            if not category_text:
+                link_tag = item.select_one("a.Product__titleLink")
+                if link_tag:
+                    href = link_tag.get('href', '')
+                    if '/category/' in href:
+                        parts = href.split('/category/')
+                        if len(parts) > 1:
+                            category_part = parts[1].split('/')[0]
+                            import urllib.parse
+                            category_text = urllib.parse.unquote(category_part)
+
+            # Map Japanese category to English
+            if category_text:
+                mapped = map_category(category_text)
+                if mapped != 'Other':
+                    return mapped
+
+            # Fallback: Extract from title
+            if title:
+                return get_category_from_title(title)
+
+            return 'Other'
         except Exception as e:
             logger.debug(f"Error extracting category: {e}")
-            return None
+            return 'Other'
     
     def parse_listing_item(self, item: BeautifulSoup, brand: str) -> Optional[Dict[str, Any]]:
         """
@@ -405,9 +423,9 @@ class YahooScraper(BaseScraper):
             # Determine listing type
             listing_type = self.determine_listing_type(item)
             
-            # Extract category
-            category = self.extract_category(item)
-            
+            # Extract and map category to English
+            category = self.extract_category(item, title)
+
             # Build listing data
             listing_data = {
                 'market': 'yahoo',
