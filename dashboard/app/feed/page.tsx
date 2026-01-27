@@ -43,12 +43,33 @@ function timeAgo(dateString: string): string {
   return `${Math.floor(seconds / 86400)}d ago`;
 }
 
-function getZenMarketLink(listing: Listing): string {
+function getProxyLinks(listing: Listing): { zenMarketUrl: string; buyeeUrl: string } {
+  let zenMarketUrl = '';
+  let buyeeUrl = '';
+  
   if (listing.market === 'yahoo') {
-    const match = listing.listing_url.match(/\/([a-z0-9]+)$/);
-    return `https://zenmarket.jp/en/yahoo.aspx?itemCode=${match ? match[1] : ''}`;
+    // Extract Yahoo auction ID from listing URL
+    // URL format: https://page.auctions.yahoo.co.jp/jp/auction/{id}
+    const match = listing.listing_url.match(/auction\/([a-z0-9]+)/i);
+    const auctionId = match ? match[1] : '';
+    
+    if (auctionId) {
+      zenMarketUrl = `https://zenmarket.jp/en/yahoo.aspx?itemCode=${auctionId}`;
+      buyeeUrl = `https://buyee.jp/item/yahoo/auction/${auctionId}`;
+    }
+  } else if (listing.market === 'mercari') {
+    // Extract Mercari item ID from listing URL or external_id
+    // URL format: https://jp.mercari.com/item/{id}
+    const match = listing.listing_url.match(/item\/([a-z0-9]+)/i);
+    const itemId = match ? match[1] : listing.external_id;
+    
+    if (itemId) {
+      zenMarketUrl = `https://zenmarket.jp/en/mercariproduct.aspx?itemCode=${itemId}`;
+      buyeeUrl = `https://buyee.jp/mercari/item/${itemId}`;
+    }
   }
-  return listing.listing_url;
+  
+  return { zenMarketUrl, buyeeUrl };
 }
 
 function ListingCard({ listing, onClick }: { listing: Listing; onClick: () => void }) {
@@ -184,7 +205,8 @@ export default function FeedPage() {
   
   const [brands, setBrands] = useState<Brand[]>([]);
   const [selectedBrands, setSelectedBrands] = useState<string[]>([]);
-  const [priceRange, setPriceRange] = useState([0, 1000]);
+  const [minPrice, setMinPrice] = useState('');
+  const [maxPrice, setMaxPrice] = useState('');
   const [market, setMarket] = useState('all');
   const [sort, setSort] = useState('newest');
   const [listings, setListings] = useState<Listing[]>([]);
@@ -284,8 +306,8 @@ export default function FeedPage() {
         discord_id: session.user.id,
         page: pageNum.toString(),
         per_page: '100',
-        min_price_usd: priceRange[0].toString(),
-        max_price_usd: priceRange[1].toString(),
+        min_price_usd: minPrice || '0',  // Default to 0 if empty
+        max_price_usd: maxPrice || '999999',  // Default to very high if empty
         market: market,
         sort: sort
       });
@@ -344,7 +366,7 @@ export default function FeedPage() {
     } finally {
       setLoading(false);
     }
-  }, [session, priceRange, market, selectedBrands, sort, apiUrl]);
+  }, [session, minPrice, maxPrice, market, selectedBrands, sort, apiUrl]);
 
   // Fetch when filters change
   useEffect(() => {
@@ -353,7 +375,7 @@ export default function FeedPage() {
       setLastKnownTimestamp(null); // Reset timestamp when filters change
       fetchListings(1, false);
     }
-  }, [selectedBrands, priceRange, market, sort, status, session, fetchListings]);
+  }, [selectedBrands, minPrice, maxPrice, market, sort, status, session, fetchListings]);
 
   // Smart polling - only refresh when new listings detected
   useEffect(() => {
@@ -379,7 +401,7 @@ export default function FeedPage() {
     
     const interval = setInterval(checkForUpdates, 5000); // Check every 5 seconds
     return () => clearInterval(interval);
-  }, [lastKnownTimestamp, selectedBrands, priceRange, market, sort, hasAccess, fetchListings, apiUrl, status, session]);
+  }, [lastKnownTimestamp, selectedBrands, minPrice, maxPrice, market, sort, hasAccess, fetchListings, apiUrl, status, session]);
 
   // Set initial timestamp when listings load
   useEffect(() => {
@@ -409,7 +431,8 @@ export default function FeedPage() {
 
   const clearFilters = () => {
     setSelectedBrands([]);
-    setPriceRange([0, 1000]);
+    setMinPrice('');
+    setMaxPrice('');
     setMarket('all');
     setSort('newest');
   };
@@ -512,22 +535,42 @@ export default function FeedPage() {
                 <label className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2 block">
                   Price Range
                 </label>
-                <div className="flex items-center gap-3">
-                  <input
-                    type="number"
-                    placeholder="Min"
-                    value={priceRange[0] || ''}
-                    onChange={(e) => setPriceRange([Number(e.target.value) || 0, priceRange[1]])}
-                    className="w-24 px-3 py-2 border border-gray-300 rounded-md text-sm text-gray-900 bg-white focus:ring-1 focus:ring-gray-900 focus:border-gray-900 outline-none"
-                  />
-                  <span className="text-gray-400">—</span>
-                  <input
-                    type="number"
-                    placeholder="Max"
-                    value={priceRange[1] || ''}
-                    onChange={(e) => setPriceRange([priceRange[0], Number(e.target.value) || 1000])}
-                    className="w-24 px-3 py-2 border border-gray-300 rounded-md text-sm text-gray-900 bg-white focus:ring-1 focus:ring-gray-900 focus:border-gray-900 outline-none"
-                  />
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs font-medium text-gray-700 mb-1 block">
+                      Min Price
+                    </label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">
+                        $
+                      </span>
+                      <input
+                        type="number"
+                        placeholder="0"
+                        value={minPrice}
+                        onChange={(e) => setMinPrice(e.target.value)}
+                        className="w-full pl-7 pr-3 py-3 text-base border border-gray-300 rounded-md focus:ring-2 focus:ring-gray-900 focus:border-gray-900"
+                      />
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <label className="text-xs font-medium text-gray-700 mb-1 block">
+                      Max Price
+                    </label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">
+                        $
+                      </span>
+                      <input
+                        type="number"
+                        placeholder="No limit"
+                        value={maxPrice}
+                        onChange={(e) => setMaxPrice(e.target.value)}
+                        className="w-full pl-7 pr-3 py-3 text-base border border-gray-300 rounded-md focus:ring-2 focus:ring-gray-900 focus:border-gray-900"
+                      />
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -696,30 +739,56 @@ export default function FeedPage() {
                   </div>
 
                   <div className="space-y-3 pt-4">
-                    <a
-                      href={selectedListing.listing_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="block w-full bg-gray-900 text-white text-center py-3 px-6 rounded-md hover:bg-gray-800 transition-colors font-medium"
-                    >
-                      View Original Listing
-                    </a>
-                    <a
-                      href={getZenMarketLink(selectedListing)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="block w-full border-2 border-gray-900 text-gray-900 text-center py-3 px-6 rounded-md hover:bg-gray-50 transition-colors font-medium"
-                    >
-                      Buy via ZenMarket
-                    </a>
-                    <a
-                      href={`https://lens.google.com/uploadbyurl?url=${encodeURIComponent(selectedListing.image_url || '')}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="block w-full border border-gray-300 text-gray-700 text-center py-3 px-6 rounded-md hover:border-gray-900 transition-colors"
-                    >
-                      🔍 Reverse Image Search
-                    </a>
+                    {/* Get proxy links */}
+                    {(() => {
+                      const { zenMarketUrl, buyeeUrl } = getProxyLinks(selectedListing);
+                      return (
+                        <>
+                          <a
+                            href={selectedListing.listing_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="block w-full bg-gray-900 text-white text-center py-3 px-6 rounded-md hover:bg-gray-800 transition-colors font-medium"
+                          >
+                            View Original Listing
+                          </a>
+                          
+                          {/* Proxy Service Buttons (Side by Side) */}
+                          <div className="grid grid-cols-2 gap-3">
+                            {zenMarketUrl && (
+                              <a
+                                href={zenMarketUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="block w-full border-2 border-gray-900 text-gray-900 text-center py-3 px-4 rounded-md hover:bg-gray-50 transition-colors font-medium"
+                              >
+                                ZenMarket
+                              </a>
+                            )}
+                            
+                            {buyeeUrl && (
+                              <a
+                                href={buyeeUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="block w-full border-2 border-gray-900 text-gray-900 text-center py-3 px-4 rounded-md hover:bg-gray-50 transition-colors font-medium"
+                              >
+                                Buyee
+                              </a>
+                            )}
+                          </div>
+                          
+                          <a
+                            href={`https://lens.google.com/uploadbyurl?url=${encodeURIComponent(selectedListing.image_url || '')}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="block w-full border border-gray-300 text-gray-700 text-center py-3 px-6 rounded-md hover:border-gray-900 transition-colors"
+                          >
+                            🔍 Reverse Image Search
+                          </a>
+                        </>
+                      );
+                    })()}
                   </div>
                 </div>
               </div>
