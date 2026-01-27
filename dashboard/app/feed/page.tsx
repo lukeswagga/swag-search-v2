@@ -528,53 +528,48 @@ export default function FeedPage() {
               </div>
             </div>
 
-            {/* Price Range, Market, Sort */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {/* Price Range */}
-              <div>
-                <label className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2 block">
-                  Price Range
-                </label>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-xs font-medium text-gray-700 mb-1 block">
-                      Min Price
-                    </label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">
-                        $
-                      </span>
-                      <input
-                        type="number"
-                        placeholder="0"
-                        value={minPrice}
-                        onChange={(e) => setMinPrice(e.target.value)}
-                        className="w-full pl-7 pr-3 py-3 text-base border border-gray-300 rounded-md focus:ring-2 focus:ring-gray-900 focus:border-gray-900"
-                      />
-                    </div>
+            {/* Price Range */}
+            <div>
+              <label className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2 block">
+                Price Range
+              </label>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-medium text-gray-700 mb-1 block">
+                    Min Price
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
+                    <input
+                      type="number"
+                      placeholder="0"
+                      value={minPrice}
+                      onChange={(e) => setMinPrice(e.target.value)}
+                      className="w-full pl-7 pr-3 py-3 text-base border border-gray-300 rounded-md focus:ring-2 focus:ring-gray-900 focus:border-gray-900"
+                    />
                   </div>
-                  
-                  <div>
-                    <label className="text-xs font-medium text-gray-700 mb-1 block">
-                      Max Price
-                    </label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">
-                        $
-                      </span>
-                      <input
-                        type="number"
-                        placeholder="No limit"
-                        value={maxPrice}
-                        onChange={(e) => setMaxPrice(e.target.value)}
-                        className="w-full pl-7 pr-3 py-3 text-base border border-gray-300 rounded-md focus:ring-2 focus:ring-gray-900 focus:border-gray-900"
-                      />
-                    </div>
+                </div>
+                
+                <div>
+                  <label className="text-xs font-medium text-gray-700 mb-1 block">
+                    Max Price
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
+                    <input
+                      type="number"
+                      placeholder="0"
+                      value={maxPrice}
+                      onChange={(e) => setMaxPrice(e.target.value)}
+                      className="w-full pl-7 pr-3 py-3 text-base border border-gray-300 rounded-md focus:ring-2 focus:ring-gray-900 focus:border-gray-900"
+                    />
                   </div>
                 </div>
               </div>
+            </div>
 
-              {/* Market Filter */}
+            {/* Source and Sort */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2 block">
                   Source
@@ -582,7 +577,7 @@ export default function FeedPage() {
                 <select
                   value={market}
                   onChange={(e) => setMarket(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-1 focus:ring-gray-900 focus:border-gray-900 outline-none bg-white"
+                  className="w-full px-3 py-3 border border-gray-300 rounded-md text-base focus:ring-2 focus:ring-gray-900 focus:border-gray-900"
                 >
                   <option value="all">All Sources</option>
                   <option value="yahoo">Yahoo Japan</option>
@@ -590,7 +585,6 @@ export default function FeedPage() {
                 </select>
               </div>
 
-              {/* Sort */}
               <div>
                 <label className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2 block">
                   Sort By
@@ -598,7 +592,7 @@ export default function FeedPage() {
                 <select 
                   value={sort}
                   onChange={(e) => setSort(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-1 focus:ring-gray-900 focus:border-gray-900 outline-none bg-white text-gray-900"
+                  className="w-full px-3 py-3 border border-gray-300 rounded-md text-base focus:ring-2 focus:ring-gray-900 focus:border-gray-900"
                 >
                   <option value="newest">Newest</option>
                   <option value="price_low">Price: Low to High</option>
