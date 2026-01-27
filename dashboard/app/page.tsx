@@ -75,7 +75,7 @@ export default function Home() {
                 Live Updates
               </h3>
               <p className="text-gray-600">
-                New listings appear every 5 minutes. Never miss a deal on your grails.
+                New listings appear in real time. Never miss a deal on your grails.
               </p>
             </div>
             
