@@ -50,11 +50,11 @@ function getProxyLinks(listing: Listing): { zenMarketUrl: string; buyeeUrl: stri
   if (listing.market === 'yahoo') {
     // Extract Yahoo auction ID from listing URL
     // URL format: https://page.auctions.yahoo.co.jp/jp/auction/{id}
-    const match = listing.listing_url.match(/auction\/([a-z0-9]+)/i);
+    const match = listing.listing_url.match(/auction\/([a-z][0-9]+)/i);
     const auctionId = match ? match[1] : '';
     
     if (auctionId) {
-      zenMarketUrl = `https://zenmarket.jp/en/yahoo.aspx?itemCode=${auctionId}`;
+      zenMarketUrl = `https://zenmarket.jp/en/auction.aspx?itemCode=${auctionId}`;
       buyeeUrl = `https://buyee.jp/item/yahoo/auction/${auctionId}`;
     }
   } else if (listing.market === 'mercari') {
@@ -205,6 +205,7 @@ export default function FeedPage() {
   
   const [brands, setBrands] = useState<Brand[]>([]);
   const [selectedBrands, setSelectedBrands] = useState<string[]>([]);
+  const [selectedCategory, setSelectedCategory] = useState('All');
   const [minPrice, setMinPrice] = useState('');
   const [maxPrice, setMaxPrice] = useState('');
   const [market, setMarket] = useState('all');
@@ -316,6 +317,11 @@ export default function FeedPage() {
       if (selectedBrands.length > 0) {
         params.append('brand', selectedBrands.join('|'));
       }
+
+      // Add category if selected
+      if (selectedCategory && selectedCategory !== 'All') {
+        params.append('category', selectedCategory);
+      }
       
       const url = `${apiUrl}/api/feed/search?${params}`;
       console.log('Fetching listings from:', url);
@@ -366,7 +372,7 @@ export default function FeedPage() {
     } finally {
       setLoading(false);
     }
-  }, [session, minPrice, maxPrice, market, selectedBrands, sort, apiUrl]);
+  }, [session, minPrice, maxPrice, market, selectedBrands, selectedCategory, sort, apiUrl]);
 
   // Fetch when filters change
   useEffect(() => {
@@ -375,7 +381,7 @@ export default function FeedPage() {
       setLastKnownTimestamp(null); // Reset timestamp when filters change
       fetchListings(1, false);
     }
-  }, [selectedBrands, minPrice, maxPrice, market, sort, status, session, fetchListings]);
+  }, [selectedBrands, minPrice, maxPrice, market, sort, status, session, fetchListings, selectedCategory]);
 
   // Smart polling - only refresh when new listings detected
   useEffect(() => {
@@ -401,7 +407,7 @@ export default function FeedPage() {
     
     const interval = setInterval(checkForUpdates, 5000); // Check every 5 seconds
     return () => clearInterval(interval);
-  }, [lastKnownTimestamp, selectedBrands, minPrice, maxPrice, market, sort, hasAccess, fetchListings, apiUrl, status, session]);
+  }, [lastKnownTimestamp, selectedBrands, selectedCategory, minPrice, maxPrice, market, sort, hasAccess, fetchListings, apiUrl, status, session]);
 
   // Set initial timestamp when listings load
   useEffect(() => {
@@ -431,6 +437,7 @@ export default function FeedPage() {
 
   const clearFilters = () => {
     setSelectedBrands([]);
+    setSelectedCategory('All');
     setMinPrice('');
     setMaxPrice('');
     setMarket('all');
@@ -523,6 +530,30 @@ export default function FeedPage() {
                     `}
                   >
                     {brand.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Category Filter */}
+            <div>
+              <label className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2 block">
+                Category
+              </label>
+              <div className="flex flex-wrap gap-2">
+                {['All', 'Jackets', 'Tops', 'Pants', 'Shoes', 'Bags', 'Accessories'].map(cat => (
+                  <button
+                    key={cat}
+                    onClick={() => setSelectedCategory(cat)}
+                    className={`
+                      px-4 py-2 text-sm font-medium rounded-md transition-all
+                      ${selectedCategory === cat
+                        ? 'bg-gray-900 text-white'
+                        : 'bg-white border border-gray-300 text-gray-700 hover:border-gray-900'
+                      }
+                    `}
+                  >
+                    {cat}
                   </button>
                 ))}
               </div>
