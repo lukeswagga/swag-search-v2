@@ -70,6 +70,16 @@ except ImportError:
         sys.path.insert(0, _parent_dir)
     from category_filter import should_exclude_category
 
+try:
+    from category_mapper import map_mercari_category, map_category, get_category_from_title
+except ImportError:
+    import sys
+    import os
+    _parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if _parent_dir not in sys.path:
+        sys.path.insert(0, _parent_dir)
+    from category_mapper import map_mercari_category, map_category, get_category_from_title
+
 from config import (
     MERCARI_MAX_REQUESTS_PER_MINUTE,
     MERCARI_MIN_DELAY_BETWEEN_REQUESTS,
@@ -552,83 +562,56 @@ class MercariAPIScraper(BaseScraper):
         
         return None
     
-    def _map_category_id_to_name(self, category_id: Optional[int]) -> Optional[str]:
+    def _extract_category_from_item(self, item: Dict[str, Any], title: str = None) -> str:
         """
-        Map Mercari category_id to readable category name
-        
-        Args:
-            category_id: Category ID from API response
-        
-        Returns:
-            Category name or None if not found
-        """
-        if not category_id:
-            return None
-        
-        # Common Mercari category mappings
-        # Note: This is a simplified mapping. For a complete mapping, you'd need
-        # to fetch the full category tree from Mercari's API or maintain a comprehensive list
-        category_map = {
-            # Men's Fashion categories (approximate IDs - may need adjustment)
-            1: "Men's Fashion",
-            2: "Men's Clothing",
-            3: "Men's Shoes",
-            4: "Men's Accessories",
-            5: "Bags",
-            # Add more mappings as needed based on actual API responses
-        }
-        
-        # Try direct mapping first
-        if category_id in category_map:
-            return category_map[category_id]
-        
-        # If category_id is not in our map, try to extract from item data
-        # The API might include category name in the item object
-        return None
-    
-    def _extract_category_from_item(self, item: Dict[str, Any]) -> Optional[str]:
-        """
-        Extract category name from Mercari API item response
-        
+        Extract and map category from Mercari API item response to English.
+
         Args:
             item: Item data from API response
-        
+            title: Optional title for fallback category extraction
+
         Returns:
-            Category name or path, or None if not found
+            English category name (Jackets, Tops, Pants, Shoes, Bags, Accessories) or 'Other'
         """
         try:
-            # Method 1: Check for category object with name
+            category_id = None
+            category_name = None
+
+            # Method 1: Check for categoryId
+            category_id = item.get("categoryId")
+
+            # Method 2: Check for category object with name
             category_obj = item.get("category")
             if category_obj:
                 if isinstance(category_obj, dict):
                     category_name = category_obj.get("name")
-                    if category_name:
-                        return category_name
+                    if not category_id:
+                        category_id = category_obj.get("id")
                 elif isinstance(category_obj, str):
-                    return category_obj
-            
-            # Method 2: Check for categoryId and map it
-            category_id = item.get("categoryId")
-            if category_id:
-                mapped_name = self._map_category_id_to_name(category_id)
-                if mapped_name:
-                    return mapped_name
-                # If mapping fails, return the ID as string for filtering
-                return f"category_{category_id}"
-            
-            # Method 3: Check for category path or breadcrumb
-            category_path = item.get("categoryPath") or item.get("category_path")
-            if category_path:
-                if isinstance(category_path, list) and len(category_path) > 0:
-                    # Return the last (most specific) category in the path
-                    return category_path[-1] if isinstance(category_path[-1], str) else str(category_path[-1])
-                elif isinstance(category_path, str):
-                    return category_path
-            
-            return None
+                    category_name = category_obj
+
+            # Method 3: Check for category path
+            if not category_name:
+                category_path = item.get("categoryPath") or item.get("category_path")
+                if category_path:
+                    if isinstance(category_path, list) and len(category_path) > 0:
+                        category_name = category_path[-1] if isinstance(category_path[-1], str) else str(category_path[-1])
+                    elif isinstance(category_path, str):
+                        category_name = category_path
+
+            # Map to English category using category_mapper
+            mapped = map_mercari_category(category_id, category_name)
+            if mapped != 'Other':
+                return mapped
+
+            # Fallback: Extract from title
+            if title:
+                return get_category_from_title(title)
+
+            return 'Other'
         except Exception as e:
             logger.debug(f"Error extracting category from item: {e}")
-            return None
+            return 'Other'
     
     def _parse_api_item(self, item: Dict[str, Any], brand: str) -> Optional[Dict[str, Any]]:
         """
@@ -687,9 +670,9 @@ class MercariAPIScraper(BaseScraper):
             
             # Mercari only has fixed price listings (no auctions)
             listing_type = "fixed"
-            
-            # Extract category
-            category = self._extract_category_from_item(item)
+
+            # Extract and map category to English
+            category = self._extract_category_from_item(item, title)
             
             # Build listing data
             listing_data = {
