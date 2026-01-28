@@ -205,6 +205,7 @@ export default function FeedPage() {
   
   const [brands, setBrands] = useState<Brand[]>([]);
   const [selectedBrands, setSelectedBrands] = useState<string[]>([]);
+  const [brandSearch, setBrandSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [minPrice, setMinPrice] = useState('');
   const [maxPrice, setMaxPrice] = useState('');
@@ -427,13 +428,6 @@ export default function FeedPage() {
     fetchListings(nextPage, true);
   };
 
-  const toggleBrand = (brandName: string) => {
-    setSelectedBrands(prev => 
-      prev.includes(brandName)
-        ? prev.filter(b => b !== brandName)
-        : [...prev, brandName]
-    );
-  };
 
   const clearFilters = () => {
     setSelectedBrands([]);
@@ -516,22 +510,89 @@ export default function FeedPage() {
               <label className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2 block">
                 Designers
               </label>
-              <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-                {brands.map(brand => (
+
+              {/* Selected brands as removable tags */}
+              {selectedBrands.length > 0 && (
+                <div className="flex flex-wrap gap-2 mb-3">
+                  {selectedBrands.map(brand => (
+                    <span
+                      key={brand}
+                      className="inline-flex items-center gap-1 px-3 py-1.5 bg-gray-900 text-white rounded-full text-sm"
+                    >
+                      {brand}
+                      <button
+                        onClick={() => setSelectedBrands(prev => prev.filter(b => b !== brand))}
+                        className="hover:bg-gray-700 rounded-full p-0.5 transition-colors"
+                        aria-label={`Remove ${brand}`}
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {/* Search input */}
+              <div className="relative mb-2">
+                <input
+                  type="text"
+                  placeholder="Search designers..."
+                  value={brandSearch}
+                  onChange={(e) => setBrandSearch(e.target.value)}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-md text-base focus:ring-2 focus:ring-gray-900 focus:border-gray-900"
+                />
+                {brandSearch && (
                   <button
-                    key={brand.name}
-                    onClick={() => toggleBrand(brand.name)}
-                    className={`
-                      px-4 py-2 text-sm font-medium whitespace-nowrap rounded-md transition-all
-                      ${selectedBrands.includes(brand.name)
-                        ? 'bg-gray-900 text-white'
-                        : 'bg-white border border-gray-300 text-gray-700 hover:border-gray-900'
-                      }
-                    `}
+                    onClick={() => setBrandSearch('')}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
                   >
-                    {brand.name}
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
                   </button>
-                ))}
+                )}
+              </div>
+
+              {/* Brand checkboxes in scrollable container */}
+              <div className="max-h-60 overflow-y-auto border border-gray-200 rounded-md bg-white">
+                {brands
+                  .filter(b => b.name.toLowerCase().includes(brandSearch.toLowerCase()))
+                  .map(brand => (
+                    <label
+                      key={brand.name}
+                      className="flex items-center justify-between px-4 py-2.5 hover:bg-gray-50 cursor-pointer transition-colors border-b border-gray-100 last:border-0"
+                    >
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="checkbox"
+                          checked={selectedBrands.includes(brand.name)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedBrands(prev => [...prev, brand.name]);
+                            } else {
+                              setSelectedBrands(prev => prev.filter(b => b !== brand.name));
+                            }
+                          }}
+                          className="w-4 h-4 rounded border-gray-300 text-gray-900 focus:ring-gray-900"
+                        />
+                        <span className="text-sm font-medium text-gray-900">
+                          {brand.name}
+                        </span>
+                      </div>
+                      <span className="text-xs text-gray-500">
+                        {brand.count.toLocaleString()}
+                      </span>
+                    </label>
+                  ))}
+                
+                {/* No results message */}
+                {brands.filter(b => b.name.toLowerCase().includes(brandSearch.toLowerCase())).length === 0 && (
+                  <div className="px-4 py-8 text-center text-gray-500 text-sm">
+                    No designers found matching "{brandSearch}"
+                  </div>
+                )}
               </div>
             </div>
 
